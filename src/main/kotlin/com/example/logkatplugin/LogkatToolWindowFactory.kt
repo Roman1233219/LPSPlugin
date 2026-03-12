@@ -5,10 +5,14 @@ import com.android.ddmlib.IDevice
 import com.android.ddmlib.MultiLineReceiver
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
@@ -24,12 +28,15 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.*
+import javax.swing.event.HyperlinkEvent
+import javax.swing.event.HyperlinkListener
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.DefaultTableModel
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
+import kotlin.math.sqrt
 
 class LogkatToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -53,7 +60,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         
         private val allLogs = mutableListOf<String>() 
         private val pidToPackage = ConcurrentHashMap<Int, String>()
-        private val pidToPpid = ConcurrentHashMap<Int, Int>()
         private val packageHasError = ConcurrentHashMap<String, Boolean>()
         
         private var currentDevice: IDevice? = null
@@ -63,11 +69,14 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private var lastKnownPackages: Set<String> = emptySet()
         
         private var activeBalloon: Balloon? = null
-        private val STALLED_MSG = "Простаивает / нет логов"
+        private var lastHintPoint: Point? = null
+        private var isStickyBalloon = false
+        private val stalledMsg = "Простаивает / нет логов"
 
         private val deviceComboBox = ComboBox<IDevice>()
         private val crashButton = JButton("CRASH", AllIcons.Actions.Suspend)
         private val clearButton = JButton(AllIcons.Actions.GC)
+        private val saveButton = JButton(AllIcons.Actions.MenuSaveall)
 
         init {
             setupUI()
@@ -103,7 +112,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                         label.text = textValue
                         label.font = label.font.deriveFont(Font.BOLD, 13f)
                         label.foreground = groupColor
-                        label.icon = if (expanded) AllIcons.Nodes.Folder else AllIcons.Nodes.Folder
+                        label.icon = AllIcons.Nodes.Folder
                         return label
                     }
 
@@ -124,14 +133,13 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                         icon = IconUtil.scale(icon, null, 2.0f)
                     }
                     label.icon = icon
-                    label.toolTipText = null
                     return label
                 }
             })
 
             val treeMouseListener = object : MouseAdapter() {
                 override fun mouseMoved(e: MouseEvent) {
-                    hideActiveBalloon()
+                    checkAndHideBalloon(e)
                     val path = processTree.getPathForLocation(e.x, e.y)
                     if (path != hoveredPath) {
                         hoveredPath = path
@@ -143,7 +151,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     val node = path?.lastPathComponent as? DefaultMutableTreeNode
                     if (node != null && node.isLeaf) {
                         val pkg = node.userObject as? String
-                        if (pkg != null) showHint(getRussianProcessDescription(pkg), e, processTree)
+                        if (pkg != null) showHint(getRussianProcessDescription(pkg), e, processTree, false)
                     }
                 }
             }
@@ -170,11 +178,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     val level = table?.getValueAt(row, 3) as? String ?: ""
                     val message = table?.getValueAt(row, 5) as? String ?: ""
                     
-                    if (c is JComponent) {
-                        c.toolTipText = null 
-                    }
-
-                    if (message == STALLED_MSG) {
+                    if (message == stalledMsg) {
                         c.foreground = Color.GRAY
                         c.background = Color(30, 30, 30)
                         return c
@@ -192,12 +196,12 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
             val tableMouseListener = object : MouseAdapter() {
                 override fun mouseMoved(e: MouseEvent) {
-                    hideActiveBalloon()
+                    checkAndHideBalloon(e)
                 }
                 override fun mousePressed(e: MouseEvent) {
                     if (SwingUtilities.isRightMouseButton(e)) {
                         val row = logTable.rowAtPoint(e.point)
-                        if (row != -1 && logTable.getValueAt(row, 5) != STALLED_MSG) {
+                        if (row != -1 && logTable.getValueAt(row, 5) != stalledMsg) {
                             logTable.setRowSelectionInterval(row, row)
                             val menu = JPopupMenu()
                             val copyItem = JMenuItem("Копировать строку", AllIcons.Actions.Copy)
@@ -215,7 +219,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 override fun mouseClicked(e: MouseEvent) {
                     if (SwingUtilities.isLeftMouseButton(e)) {
                         val row = logTable.rowAtPoint(e.point)
-                        if (row != -1 && logTable.getValueAt(row, 5) != STALLED_MSG) {
+                        if (row != -1 && logTable.getValueAt(row, 5) != stalledMsg) {
                             val pidStr = logTable.getValueAt(row, 1) as? String ?: ""
                             val level = logTable.getValueAt(row, 3) as? String ?: ""
                             val tag = logTable.getValueAt(row, 4) as? String ?: ""
@@ -223,8 +227,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                             val pid = pidStr.toIntOrNull()
                             val pkgName = if (pid != null) pidToPackage[pid] else null
                             
+                            val isError = level == "E" || message.contains("Exception", ignoreCase = true)
                             val hintText = getSmartLogExplanation(pkgName, tag, message, level)
-                            showHint(hintText, e, logTable)
+                            showHint(hintText, e, logTable, isError, message)
                         }
                     }
                 }
@@ -248,9 +253,13 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             clearButton.toolTipText = "Очистить все логи"
             clearButton.addActionListener { 
                 synchronized(allLogs) { allLogs.clear() }
-                rebuildLogTable(force = true)
+                rebuildLogTable()
             }
             toolbar.add(clearButton)
+
+            saveButton.toolTipText = "Сохранить логи в файл"
+            saveButton.addActionListener { saveLogsToFile() }
+            toolbar.add(saveButton)
             
             panel.add(toolbar, BorderLayout.NORTH)
 
@@ -282,21 +291,89 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             }
         }
 
-        private fun showHint(text: String, e: MouseEvent, component: Component) {
+        private fun checkAndHideBalloon(e: MouseEvent) {
+            val point = lastHintPoint
+            if (activeBalloon != null && point != null) {
+                if (isStickyBalloon) {
+                    val currentPoint = e.locationOnScreen
+                    val distance = sqrt(((currentPoint.x - point.x) * (currentPoint.x - point.x) + (currentPoint.y - point.y) * (currentPoint.y - point.y)).toDouble())
+                    if (distance > 30) hideActiveBalloon()
+                } else {
+                    hideActiveBalloon()
+                }
+            }
+        }
+
+        private fun saveLogsToFile() {
+            val node = processTree.lastSelectedPathComponent as? DefaultMutableTreeNode
+            val selectedPackage = node?.userObject as? String ?: "all_processes"
+            val fileName = "logs_${selectedPackage.replace(".", "_")}_${System.currentTimeMillis()}.txt"
+            
+            val descriptor = FileSaverDescriptor("Сохранить логи", "Выберите место для сохранения файла", "txt")
+            val baseDir = project.basePath?.let { java.io.File(it) }
+            val saveDialog = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
+            val baseDirVirtualFile = baseDir?.let { LocalFileSystem.getInstance().findFileByIoFile(it) }
+            val fileWrapper = saveDialog.save(baseDirVirtualFile, fileName)
+            
+            if (fileWrapper != null) {
+                try {
+                    val content = StringBuilder()
+                    for (row in 0 until logTableModel.rowCount) {
+                        val rowData = (0 until logTable.columnCount).joinToString(" ") { logTable.getValueAt(row, it).toString() }
+                        content.append(rowData).append("\n")
+                    }
+                    fileWrapper.file.writeText(content.toString())
+                    Messages.showInfoMessage("Логи успешно сохранены в:\n${fileWrapper.file.absolutePath}", "Успех")
+                } catch (e: Exception) {
+                    Messages.showErrorDialog("Ошибка при сохранении файла: ${e.message}", "Ошибка")
+                }
+            }
+        }
+
+        private fun showHint(text: String, e: MouseEvent, component: Component, isSticky: Boolean, originalMessage: String = "") {
             hideActiveBalloon()
+            isStickyBalloon = isSticky
+            lastHintPoint = e.locationOnScreen
+            
+            val listener = object : HyperlinkListener {
+                override fun hyperlinkUpdate(event: HyperlinkEvent) {
+                    if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && event.description == "show_stacktrace") {
+                        showDetailedStackTraceDialog(originalMessage)
+                    }
+                }
+            }
             val balloon = JBPopupFactory.getInstance()
-                .createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), null)
+                .createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), listener)
                 .setFadeoutTime(0)
                 .setHideOnClickOutside(true)
+                .setClickHandler({ hideActiveBalloon() }, true)
                 .createBalloon()
             
             balloon.show(RelativePoint(component, e.point), Balloon.Position.above)
             activeBalloon = balloon
         }
 
+        private fun showDetailedStackTraceDialog(message: String) {
+            val explanation = getDetailedStackTraceExplanation(message)
+            Messages.showInfoMessage(explanation, "Описание ошибки")
+        }
+
+        private fun getDetailedStackTraceExplanation(message: String): String {
+            return when {
+                message.contains("NullPointerException") -> "NullPointerException: Попытка обратиться к объекту, который равен null.\n\nСовет: Проверьте, инициализирована ли переменная перед использованием."
+                message.contains("IndexOutOfBoundsException") -> "IndexOutOfBoundsException: Обращение к несуществующему индексу в массиве или списке.\n\nСовет: Проверьте размер коллекции перед обращением."
+                message.contains("NetworkOnMainThreadException") -> "NetworkOnMainThreadException: Попытка выполнить сетевой запрос в главном UI-потоке.\n\nСовет: Используйте корутины или фоновые потоки для работы с сетью."
+                message.contains("OutOfMemoryError") -> "OutOfMemoryError: Приложению не хватило оперативной памяти (RAM).\n\nСовет: Оптимизируйте работу с изображениями и очищайте кэш."
+                message.contains("ANR") -> "ANR (Application Not Responding): Главный поток заблокирован более чем на 5 секунд.\n\nСовет: Вынесите тяжелые вычисления из Main Thread."
+                message.contains("ClassCastException") -> "ClassCastException: Неверное приведение типов объектов.\n\nСовет: Проверьте логику работы с интерфейсами и наследованием."
+                else -> "Подробности ошибки:\n$message\n\nСовет: Проанализируйте StackTrace для поиска номера строки в вашем коде."
+            }
+        }
+
         private fun hideActiveBalloon() {
             activeBalloon?.hide()
             activeBalloon = null
+            lastHintPoint = null
         }
 
         private fun parseLogLine(line: String): Array<String> {
@@ -324,7 +401,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                             if (parts.size >= 8) {
                                 val pid = parts[1].toIntOrNull() ?: parts[0].toIntOrNull()
                                 val name = parts.last()
-                                if (pid != null && name.contains(".")) {
+                                if (pid != null && (name.contains(".") || name.length > 2)) {
                                     pidToPackage.putIfAbsent(pid, name)
                                 }
                             }
@@ -429,7 +506,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                                     val selectedPackage = node?.userObject as? String
                                     if (selectedPackage != null && isLineRelatedToPackage(line, selectedPackage)) {
                                         ApplicationManager.getApplication().invokeLater { 
-                                            if (logTableModel.rowCount == 1 && logTableModel.getValueAt(0, 5) == STALLED_MSG) {
+                                            if (logTableModel.rowCount == 1 && logTableModel.getValueAt(0, 5) == stalledMsg) {
                                                 logTableModel.removeRow(0)
                                             }
                                             logTableModel.addRow(parseLogLine(cleanLine))
@@ -463,7 +540,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             return pidToPackage[pid] ?: "PID: $pid"
         }
 
-        private fun rebuildLogTable(force: Boolean = false) {
+        private fun rebuildLogTable() {
             val node = processTree.lastSelectedPathComponent as? DefaultMutableTreeNode
             val selectedPackage = node?.userObject as? String ?: return
             
@@ -472,7 +549,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             val filtered = snapshot.filter { isLineRelatedToPackage(it, selectedPackage) }
             
             if (filtered.isEmpty()) {
-                logTableModel.addRow(arrayOf("", "", "", "I", "INFO", STALLED_MSG))
+                logTableModel.addRow(arrayOf("", "", "", "I", "INFO", stalledMsg))
             } else {
                 filtered.takeLast(1000).forEach { logTableModel.addRow(parseLogLine(it)) }
             }
@@ -510,121 +587,157 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
         private fun getRussianProcessDescription(pkg: String): String {
             val description = when {
+                pkg == "init" -> "<b>Прародитель (Init).</b> Первый процесс в системе, запускаемый ядром. Порождает все остальные системные демоны."
+                pkg == "keystore2" || pkg == "keystore" -> "<b>Хранилище ключей (Keystore).</b> Защищенное хранилище криптографических ключей, паролей и сертификатов."
+                pkg == "gatekeeperd" -> "<b>Сторож экрана (Gatekeeper).</b> Проверяет PIN-коды, пароли и графические ключи при разблокировке."
+                pkg == "statsd" -> "<b>Сборщик статистики (Statsd).</b> Собирает анонимную диагностику и метрики использования системы."
+                pkg == "dumpstate" -> "<b>Сборщик отчета (Dumpstate).</b> Собирает все логи и информацию при создании bug-репорта."
+                pkg == "tombstoned" -> "<b>Регистратор падений (Tombstoned).</b> Записывает дампы памяти (tombstone) при падении нативных процессов."
+                pkg == "incidentd" -> "<b>Сборщик инцидентов.</b> Собирает структурированные отчеты о проблемах для отправки разработчикам."
+                pkg == "apexd" -> "<b>Менеджер APEX.</b> Управляет модульными системными компонентами (APEX-пакетами) для обновлений Android."
+                pkg == "logd" -> "<b>Демон логирования (Logd).</b> Принимает и буферизирует все логи от всех процессов. Именно от него читает Logcat."
+                pkg == "servicemanager" -> "<b>Диспетчер служб.</b> Реестр всех Binder-сервисов. Помогает процессам находить друг друга."
+                pkg == "hwservicemanager" -> "<b>Диспетчер аппаратных служб.</b> Реестр для HAL-сервисов (аппаратного уровня)."
+                pkg == "cameraserver" -> "<b>Сервер камеры.</b> Управляет доступом к камере, обработкой изображений и передачей данных приложениям."
+                pkg == "drmserver" -> "<b>Защита контента (DRM).</b> Управляет лицензиями на защищенный медиаконтент (Netflix, etc)."
+                pkg == "mediaextractor" -> "<b>Извлечение медиа.</b> Разбирает медиафайлы на дорожки (аудио, видео, субтитры)."
+                pkg == "media.codec" -> "<b>Аппаратный кодек.</b> Процесс для аппаратного кодирования/декодирования видео."
+                pkg == "media.swcodec" -> "<b>Программный кодек.</b> Процесс для программного кодирования/декодирования видео (если нет аппаратного)."
+                pkg == "netd" -> "<b>Сетевой демон (Netd).</b> Управляет сетевыми интерфейсами, правилами брандмауэра и VPN."
+                pkg == "mdnsd" -> "<b>Сетевое обнаружение (mDNS).</b> Позволяет находить устройства в локальной сети (Chromecast, принтеры)."
+                pkg == "clatd" -> "<b>Переход на IPv6 (CLAT).</b> Помогает приложениям, работающим только с IPv4, работать в IPv6-сетях."
+                pkg == "wificond" -> "<b>Демон Wi-Fi (Wificond).</b> Низкоуровневое взаимодействие с драйвером Wi-Fi."
+                pkg == "hostapd" -> "<b>Точка доступа.</b> Запускает режим модема (Wi-Fi точки доступа)."
+                pkg == "time_daemon" -> "<b>Демон времени.</b> Синхронизирует системное время с аппаратными часами и сетью."
+                pkg == "thermald" -> "<b>Термальный демон.</b> Следит за температурой и снижает частоты при перегреве."
+                pkg == "perfd" -> "<b>Демон производительности.</b> Оптимизирует частоты CPU/GPU для плавности работы."
+                pkg == "storaged" -> "<b>Монитор хранилища.</b> Следит за скоростью работы и состоянием внутренней памяти."
+                pkg == "iorapd" -> "<b>Предиктор ввода/вывода.</b> Предсказывает, какие файлы понадобятся приложению, и подгружает их заранее для ускорения запуска."
+                pkg == "webview_zygote" -> "<b>Процесс-шаблон WebView.</b> Отдельный Zygote для WebView, чтобы изолировать и ускорить рендеринг веб-страниц."
+                pkg.contains("webview") -> "<b>WebView.</b> Компонент для отображения веб-страниц внутри приложений."
+                pkg == "statscompanion" -> "<b>Спутник статистики.</b> Помогает statsd обрабатывать сложные метрики."
+                pkg == "networkstack" -> "<b>Сетевой стек.</b> Управляет IP-адресацией, DHCP и DNS-запросами."
+                pkg == "ipacm" -> "<b>Менеджер IP-адресов.</b> Распределяет IP-адреса при использовании модема."
                 pkg == "system_server" -> "<b>Ядро системы (System Server).</b> Управляет всеми окнами, питанием, уведомлениями, датчиками и безопасностью."
                 pkg == "surfaceflinger" -> "<b>Графический композитор (SurfaceFlinger).</b> Собирает кадры от всех приложений и выводит их на экран через GPU."
-                pkg == "audioserver" -> "<b>Звуковая служба (AudioServer).</b> Управляет микрофоном, динамиками, громкостью и всеми аудио-потоками."
-                pkg == "mediaserver" -> "<b>Медиа-движок (MediaServer).</b> Отвечает за проигрывание видео, музыку, работу камеры и кодеки."
-                pkg == "installd" -> "<b>Установщик (Installd).</b> Выполняет установку, удаление приложений и очистку их кеша."
-                pkg == "vold" -> "<b>Менеджер дисков (Vold).</b> Управляет файловой системой, SD-картами и шифрованием данных."
-                pkg == "netd" -> "<b>Сетевой демон (Netd).</b> Управляет Wi-Fi, мобильным интернетом, точкой доступа и сетевым экраном."
-                pkg == "zygote" || pkg == "zygote64" -> "<b>Материнский процесс (Zygote).</b> Процесс-шаблон, из которого рождаются все остальные приложения."
-                pkg.contains("systemui") -> "<b>Интерфейс системы (SystemUI).</b> Шторка уведомлений, кнопки навигации, часы и экран блокировки."
-                pkg.contains("example") -> "<b>Твой проект.</b> Твое приложение, которое ты сейчас отлаживаешь в Android Studio."
-                pkg.contains("google") -> "<b>Службы Google.</b> Play Store, Карты, синхронизация контактов и пуш-уведомления (GMS)."
-                pkg == "adbd" -> "<b>Отладчик (ADBD).</b> Мост между телефоном и компьютером для передачи команд и логов."
-                pkg == "lmkd" -> "<b>Сторож памяти (LMKD).</b> Убивает фоновые приложения, если оперативная память (RAM) заканчивается."
-                pkg.startsWith("PID:") -> "<b>Системная служба.</b> Низкоуровневый демон, выполняющий специфические задачи ОС."
+                pkg == "audioserver" -> "<b>Звуковая служба (AudioServer).</b> Управляет всеми аудио-потоками."
+                pkg == "mediaserver" -> "<b>Медиа-движок (MediaServer).</b> Работа камеры, видео и кодеков."
+                pkg == "zygote" || pkg == "zygote64" -> "<b>Материнский процесс (Zygote).</b> Процесс-шаблон для запуска приложений."
+                pkg.contains("systemui") -> "<b>Интерфейс системы (SystemUI).</b> Шторка, кнопки навигации и часы."
+                pkg.contains("example") -> "<b>Твой проект.</b> Твое приложение, которое ты сейчас отлаживаешь."
+                pkg.contains("google") -> "<b>Службы Google.</b> Play Store, Карты и синхронизация (GMS)."
                 else -> "<b>Процесс приложения: $pkg.</b> Работает в своей изолированной среде (Sandbox)."
             }
             return "<html><body style='width: 300px;'>$description</body></html>"
         }
 
+        private fun getProcessColor(pkgName: String?): String {
+            return when {
+                pkgName == null -> "gray"
+                pkgName in listOf("system_server", "surfaceflinger", "zygote", "init") -> "purple"
+                pkgName in listOf("audioserver", "cameraserver", "mediaserver") -> "blue"
+                pkgName in listOf("netd", "wificond", "wpa_supplicant", "networkstack") -> "teal"
+                pkgName in listOf("lmkd", "storaged", "keystore", "keystore2") -> "orange"
+                pkgName.contains("google") -> "red"
+                pkgName.contains("android") -> "green"
+                pkgName.contains("example") -> "gold"
+                else -> "gray"
+            }
+        }
+
         private fun getSmartLogExplanation(pkgName: String?, tag: String, message: String, level: String): String {
-            val processInfo = if (pkgName != null) "<b>Отправитель:</b> $pkgName<br>" else ""
+            val pColor = getProcessColor(pkgName)
+            val processInfo = if (pkgName != null) "<b>Отправитель:</b> <font color='$pColor'>$pkgName</font><br>" else ""
             val rawDesc = if (pkgName != null) getRussianProcessDescription(pkgName) else ""
             val cleanDesc = rawDesc.replace("<html><body style='width: 300px;'>", "").replace("</body></html>", "")
             val processDesc = if (cleanDesc.isNotEmpty()) "<i>$cleanDesc</i><br><hr>" else ""
             
+            val errorLink = if (level == "E" || message.contains("Exception", ignoreCase = true)) {
+                "<br><br><a href='show_stacktrace'>[ОПИСАНИЕ ОШИБКИ]</a>"
+            } else ""
+
             val actionDesc = when {
-                // ПИТАНИЕ И БАТАРЕЯ (1-5)
-                tag == "PowerManagerService" -> "<b>Управление питанием:</b> Изменение яркости экрана, переход в спящий режим или пробуждение устройства."
-                tag == "BatteryService" -> "<b>Служба батареи:</b> Изменение уровня заряда, температуры или статуса подключения зарядного устройства."
-                tag == "BatteryStatsService" -> "<b>Анализ энергии:</b> Система собирает данные о том, какие приложения тратят заряд батареи."
-                tag == "libPowerHal" || message.contains("perfNotifyAppState") -> "<b>Разгон железа:</b> Уведомление Power HAL о смене состояния. Система поднимает частоты CPU/GPU для плавности."
-                tag == "ThermalManagerService" || message.contains("thermal") -> "<b>Температурный контроль:</b> Система следит за нагревом. Если телефон горячий — производительность будет снижена."
+                // Системные сервисы
+                tag == "SystemServer" -> "<b>Запуск системы:</b> Инициализация всех системных служб при включении телефона."
+                tag == "Zygote" -> "<b>Рождение процесса:</b> Zygote создает новый процесс для приложения методом форка."
+                tag == "ZygoteInit" -> "<b>Инициализация:</b> Загрузка базовых классов Java в новый процесс."
 
-                // СЕТИ (6-12)
-                tag == "WifiService" || tag == "WifiConfigManager" -> "<b>Wi-Fi:</b> Поиск сетей, процесс подключения или изменение качества сигнала Wi-Fi."
-                tag == "ConnectivityService" -> "<b>Сеть:</b> Контроль за передачей данных. Переключение между Wi-Fi и мобильным интернетом."
-                tag == "BluetoothAdapter" || tag == "BluetoothDevice" -> "<b>Bluetooth:</b> Поиск устройств, сопряжение или передача данных по протоколу Bluetooth."
-                tag == "DnsResolver" || message.contains("DNS") -> "<b>Интернет:</b> Преобразование имен сайтов (google.com) в IP-адреса для установки соединения."
-                tag == "DhcpClient" -> "<b>Сетевой адрес:</b> Запрос IP-адреса у роутера при подключении к сети."
-                tag == "TelephonyManager" || tag == "ImsResolver" -> "<b>Телефония:</b> Состояние SIM-карты, звонки через интернет (VoLTE) или регистрация в сети."
-                tag == "StatusBarSignalPolicy" -> "<b>Связь:</b> Обновление значков уровня сигнала и типа сети (4G/5G) в статус-баре."
+                // Память и производительность
+                tag == "MemoryPressure" || message.contains("low memory") -> "<font color='orange'><b>Нехватка памяти:</b> Система испытывает дефицит оперативной памяти. Фоновые приложения будут закрыты.</font>"
+                tag == "lmkd" -> "<b>Убийца процессов:</b> LMKD анализирует давление памяти и выбирает кандидатов на закрытие."
+                tag == "perfprofiler" -> "<b>Профилировщик:</b> Сбор данных о производительности для Android Studio."
 
-                // ГРАФИКА И ИНТЕРФЕЙС (13-25)
-                tag == "BufferQueueDebug" || tag == "BufferQueue" || tag == "BufferQueueProducer" -> {
-                    if (message.contains("Splash Screen")) "<font color='red'><b>Ошибка Splash Screen:</b> Окно заставки закрылось быстрее, чем система успела его отрисовать.</font>"
-                    else "<b>Графический конвейер:</b> Передача кадра между приложением и экраном. Ошибка здесь ведет к мерцанию."
-                }
-                tag == "WindowManager" || tag == "DisplayContent" -> "<b>Менеджер окон:</b> Управление слоями интерфейса. Решает, какое окно должно быть сверху."
-                tag == "ViewRootImpl" || message.contains("relayout") -> "<b>Перерисовка:</b> Окно меняет свой размер, положение или содержимое элементов."
-                tag == "Choreographer" -> "<b>Синхронизация:</b> Система сообщает, что пора рисовать следующий кадр. Пропуски вызывают 'лаги'."
-                tag == "SurfaceControl" -> "<b>Слои экрана:</b> Создание или уничтожение 'поверхностей' (например, при появлении диалогов)."
-                tag == "Skia" -> "<b>Движок рисования:</b> Библиотека, которая рисует все 2D элементы (текст, иконки, тени)."
-                tag == "Mali" || tag == "Adreno" || tag == "GLConsumer" -> "<b>Видеокарта (GPU):</b> Сообщения от драйверов графического процессора об отрисовке."
-                tag == "WallpaperService" -> "<b>Обои:</b> Отрисовка рабочего стола. Если здесь ошибки — фон может пропасть."
-                tag == "DreamManager" -> "<b>Заставка:</b> Работа режима ожидания (Daydream) при зарядке устройства."
-                tag == "StatusBar" -> "<b>Статус-бар:</b> Управление верхней панелью (часы, уведомления, иконки)."
-                tag == "Game_Utils" || message.contains("getTopPackageName") -> "<b>Игровой режим:</b> Определение активного приложения для приоритезации ресурсов."
+                // Сеть
+                tag == "TrafficController" -> "<b>Контроль трафика:</b> Управление сетевыми очередями и приоритетами пакетов."
+                tag == "NetworkPolicyManager" -> "<b>Политики сети:</b> Ограничение фонового трафика, режим экономии трафика."
+                tag == "Vpn" -> "<b>VPN-соединение:</b> Установка или разрыв защищенного туннеля."
+                tag == "Ethernet" -> "<b>Проводная сеть:</b> Подключение через USB-сеть или Ethernet-адаптер."
 
-                // ЖИЗНЕННЫЙ ЦИКЛ И ПРИЛОЖЕНИЯ (26-35)
-                tag == "ActivityTaskManager" || tag == "ActivityManager" -> {
-                    if (message.contains("START")) "<b>Навигация:</b> Запуск нового экрана (Activity). Система создает процесс."
-                    else "<b>Управление задачами:</b> Переключение между приложениями, остановка фоновых процессов или сохранение состояния."
-                }
-                tag == "ActivityThread" -> "<b>Главный поток:</b> Main Thread приложения. Здесь выполняется основной код и инициализация UI."
-                tag == "Fragment" -> "<b>Интерфейс:</b> Управление частями экрана (фрагментами). Загрузка или смена блоков интерфейса."
-                tag == "PackageManager" || tag == "PackageParser" -> "<b>Менеджер пакетов:</b> Проверка прав, поиск установленных программ или установка обновлений."
-                tag == "OatFileManager" || tag == "BackgroundDexOptService" -> "<b>Оптимизация:</b> Работа с компилированным кодом приложения для ускорения его запуска."
-                tag == "AppOps" || message.contains("Permission") -> "<b>Контроль доступа:</b> Проверка, есть ли у приложения право использовать камеру, микрофон или GPS."
-                tag == "Resources" || tag == "AssetManager" -> "<b>Ресурсы:</b> Загрузка картинок, строк или макетов из папки res/assets."
-                tag == "JobScheduler" || tag == "JobService" -> "<b>Планировщик:</b> Запуск фоновых задач (индексация, синхронизация) по расписанию."
-                tag == "AlarmManager" -> "<b>Таймеры:</b> Выполнение действий в точное время (будильники, уведомления)."
-                tag == "WorkManager" -> "<b>Фоновые работы:</b> Библиотека Jetpack управляет гарантированным выполнением задач."
+                // Bluetooth
+                tag == "BluetoothMapService" -> "<b>Bluetooth MAP:</b> Доступ к сообщениям (SMS) через Bluetooth (например, в машине)."
+                tag == "BluetoothPbap" -> "<b>Bluetooth PBAP:</b> Доступ к контактам через Bluetooth."
+                tag == "BluetoothA2dp" -> "<b>Bluetooth A2DP:</b> Передача качественного звука на наушники или колонку."
+                tag == "BluetoothAvrcp" -> "<b>Bluetooth AVRCP:</b> Управление воспроизведением (пауза/трек) с гарнитуры."
 
-                // БЕЗОПАСНОСТЬ И ВВОД (36-45)
-                tag == "KeyguardViewMediator" || tag == "KeyguardUpdateMonitor" -> "<b>Экран блокировки:</b> Процесс разблокировки, проверка пароля или биометрии."
-                tag == "FingerprintService" || tag == "FaceService" || tag == "BiometricService" -> "<b>Биометрия:</b> Процесс сканирования отпечатка пальца или распознавания лица."
-                tag == "InputDispatcher" || message.contains("MotionEvent") -> "<b>Взаимодействие:</b> Система зафиксировала нажатие пальцем или жест и передает его приложению."
-                tag == "InputMethodManagerService" || tag == "SoftKeyboard" -> "<b>Клавиатура:</b> Появление, скрытие или переключение языков экранной клавиатуры."
-                tag == "SensorService" || tag == "SensorManager" -> "<b>Датчики:</b> Чтение данных с акселерометра, гироскопа, датчика приближения или освещенности."
-                tag == "VibratorService" -> "<b>Вибрация:</b> Управление вибромотором для уведомлений или тактильной отдачи."
-                tag == "AccountManagerService" -> "<b>Аккаунты:</b> Синхронизация учетных записей Google, почты и других сервисов."
-                tag == "SettingsProvider" || message.contains("Settings") -> "<b>Настройки:</b> Чтение или запись системных параметров (яркость, звук, режим полета)."
-                tag == "NotificationService" -> "<b>Уведомления:</b> Создание, отображение или удаление пуш-уведомлений. Проверка режима 'Не беспокоить'."
+                // USB
+                tag == "UsbHostManager" -> "<b>USB-host:</b> Подключение внешних устройств (флешки, мыши) к телефону через OTG."
+                tag == "UsbAlsaManager" -> "<b>USB-звук:</b> Управление звуковыми USB-устройствами (внешние ЦАП)."
+                tag == "MtpServer" -> "<b>MTP-сервер:</b> Передача файлов при подключении к компьютеру в режиме MTP."
 
-                // ПАМЯТЬ, ОШИБКИ И ХРАНИЛИЩЕ (46-60)
-                tag == "SQLite" || tag == "SQLiteDatabase" || message.contains("database") -> "<b>База данных:</b> Приложение читает или записывает информацию в локальный файл данных."
-                tag == "SharedPreferences" -> "<b>Настройки приложения:</b> Работа с простыми данными 'ключ-значение' (XML в памяти)."
-                tag == "ContentResolver" || tag == "ContentProvider" -> "<b>Доступ к данным:</b> Приложение запрашивает информацию у другого приложения (например, контакты)."
-                tag == "StorageManagerService" || tag == "Vold" -> "<b>Хранилище:</b> Управление файловой системой, SD-картами или проверкой целостности диска."
-                tag == "Art" || tag == "Dalvik" -> "<b>Среда исполнения:</b> Сообщения от виртуальной машины Android о работе или компиляции Java/Kotlin кода."
-                tag == "StrictMode" -> "<b>Контроль кода:</b> Обнаружена 'тяжелая' операция (сеть/диск) в главном потоке. Это ведет к фризам UI."
-                tag == "ProcessStats" -> "<b>Статистика:</b> Сбор данных о потреблении оперативной памяти всеми приложениями."
-                tag == "UsbDeviceManager" -> "<b>USB:</b> Определение типа подключения кабеля (зарядка, передача файлов, ADB)."
-                message.contains("Exception") || level == "E" -> "<font color='red'><b>Критическая ошибка:</b> Произошел программный сбой. Проверьте 'Stack Trace' для поиска строки в коде.</font>"
-                message.contains("ANR") -> "<font color='red'><b>Зависание (ANR):</b> Приложение перестало отвечать. Система готовит отчет о блокировке потока.</font>"
-                message.contains("Kill") -> "<b>Завершение процесса:</b> Система закрыла приложение, чтобы освободить RAM для других задач."
-                message.contains("OOM") -> "<font color='red'><b>Нехватка памяти:</b> Процесс потребляет слишком много ресурсов (RAM). Возможен вылет приложения.</font>"
-                message.contains("Displayed") -> "<b>Экран готов:</b> Полное время запуска и отрисовки окна приложения в миллисекундах."
-                message.contains("GC") -> "<b>Очистка памяти:</b> Сборщик мусора (Garbage Collector) освобождает память. Возможны микро-паузы в UI."
-                message.contains("Leak") -> "<font color='red'><b>Утечка памяти:</b> Объект не был удален после использования. Это ведет к замедлению телефона.</font>"
+                // Экран и графика
+                tag == "DisplayManager" -> "<b>Управление дисплеем:</b> Подключение внешних мониторов, изменение разрешения."
+                tag == "DisplayPowerController" -> "<b>Питание экрана:</b> Автоматическая регулировка яркости, таймаут выключения."
+                tag == "HardwareRenderer" -> "<b>Аппаратное ускорение:</b> Отрисовка интерфейса с использованием GPU."
+                tag == "OpenGLRenderer" -> "<b>OpenGL-рендерер:</b> Команды отрисовки, отправляемые на видеокарту."
+                tag == "GPUAUX" || message.contains("GuiExtAux") -> "<b>Вспомогательная графика (GPU AUX):</b> Ошибка обращения к нативному буферу Android (ANB)."
 
-                // ПРОЧЕЕ (61-70)
-                tag == "Firebase" || message.contains("GCM") -> "<b>Сервисы Firebase:</b> Облачные уведомления, аналитика или работа с БД от Google."
-                tag == "SyncManager" -> "<b>Синхронизация:</b> Передача данных между облаком и телефоном (календарь, контакты)."
-                tag == "LightsService" -> "<b>Светодиоды:</b> Управление индикатором уведомлений или подсветкой кнопок."
-                tag == "AppStandby" -> "<b>Экономия:</b> Система ограничила работу приложения, так как вы им давно не пользовались."
-                message.contains("Slow") -> "<b>Медленная работа:</b> Обнаружена задержка в выполнении операции. Возможны пропуски кадров."
-                message.contains("Timeout") -> "<b>Таймаут:</b> Ожидание операции превысило лимит времени. Возможно, сервер не ответил."
-                message.contains("Blocked") -> "<b>Блокировка:</b> Задача мешает выполнению других. Проверьте нагрузку на Main Thread."
-                message.contains("Starting") -> "<b>Холодный старт:</b> Приложение запускается 'с нуля', что требует больше времени и ресурсов."
-                tag == "BatterySaver" -> "<b>Экономия заряда:</b> Режим ограничения яркости и анимаций для продления жизни батареи."
-                else -> "<b>Событие системы:</b> Штатное уведомление от компонента '$tag'. Сообщает о завершении внутренней операции."
+                // Приложения и компоненты
+                tag == "Launcher" -> "<b>Рабочий стол:</b> Процесс лаунчера управляет иконками, виджетами и папками."
+                tag == "RecentsAnimation" -> "<b>Анимация недавних:</b> Отрисовка анимации при открытии меню многозадачности."
+                tag == "PipManager" -> "<b>Картинка-в-картинке:</b> Управление режимом PiP для видео."
+                tag == "SplitScreen" -> "<b>Разделенный экран:</b> Режим работы двух приложений одновременно."
+
+                // Система и безопасность
+                tag == "SELinux" || message.contains("avc: denied") -> "<font color='orange'><b>Безопасность SELinux:</b> Заблокировано действие, нарушающее политику безопасности.</font>"
+                tag == "Audit" -> "<b>Аудит безопасности:</b> Запись событий безопасности в системный журнал."
+                tag == "PermController" -> "<b>Контроль разрешений:</b> Проверка и управление правами приложений (камера, контакты)."
+                tag == "AppPredictionService" -> "<b>Предиктор приложений:</b> Предсказывает, какое приложение вы откроете следующим."
+
+                // NFC и бесконтактные технологии
+                tag == "NfcService" -> "<b>NFC-сервис:</b> Управление бесконтактной связью для оплаты и меток."
+                tag == "SecureElement" -> "<b>Защищенный элемент:</b> Взаимодействие с SIM-картой для оплаты."
+
+                // Телефония
+                tag == "RILJ" -> "<b>Radio Interface Layer:</b> Мост между Android и модемом для звонков и данных."
+                tag == "GsmCdmaPhone" -> "<b>Телефонный стек:</b> Управление состоянием мобильной сети."
+                tag == "MccTracker" -> "<b>Код страны/оператора:</b> Определение региона для настройки времени и данных."
+
+                // Системные утилиты
+                tag == "BackupManagerService" -> "<b>Резервное копирование:</b> Сохранение данных приложений в облако."
+                tag == "RestoreSession" -> "<b>Восстановление:</b> Восстановление данных при первом запуске."
+                tag == "SearchManager" -> "<b>Поиск:</b> Глобальный поиск по телефону и приложениям."
+
+                // Потоки выполнения
+                tag.startsWith("Binder:") -> "<b>Binder-поток:</b> Служебный поток для межпроцессного взаимодействия."
+                tag == "FinalizerDaemon" || tag == "FinalizerWatchdogDaemon" -> "<b>Сборщик мусора:</b> Фоновые потоки для очистки памяти."
+                tag == "HeapTaskDaemon" -> "<b>Управление кучей:</b> Оптимизация памяти в Dalvik/ART."
+
+                // Конкретные сообщения
+                message.contains("skip frames") -> "<font color='orange'><b>Пропуск кадров:</b> Интерфейс работает с задержками. Главный поток перегружен.</font>"
+                message.contains("Slow Operation") -> "<b>Медленная операция:</b> Выполнение задачи заняло слишком много времени."
+                message.contains("WaitForGcToComplete") -> "<b>Ожидание GC:</b> Приложение ждет завершения сборки мусора."
+                message.contains("Lock contention") -> "<font color='orange'><b>Конкуренция блокировок:</b> Потоки конфликтуют за доступ к ресурсу.</font>"
+                message.contains("Thread blocked") -> "<font color='red'><b>Блокировка потока:</b> Поток остановлен. Возможная причина зависания (ANR).</font>"
+                message.contains("dex2oat") || message.contains("Compilation") -> "<b>Компиляция:</b> Оптимизация кода приложения в фоне."
+                message.contains("Watchdog") -> "<b>Сторожевой таймер:</b> Проверка зависания системных потоков."
+                message.contains("Native crash") -> "<font color='red'><b>Падение нативного кода:</b> Ошибка в C++ компоненте.</font>"
+                message.contains("DEBUG") && message.contains("pid") -> "<b>Отладчик падений:</b> Запись информации об упавшем процессе."
+                message.contains("ANR") -> "<font color='red'><b>Зависание (ANR):</b> Приложение перестало отвечать.</font>"
+                
+                else -> "<b>Событие системы:</b> Сообщение от компонента '$tag'. Сообщает о завершении внутренней операции."
             }
 
-            return "<html><body style='width: 350px;'>$processInfo$processDesc$actionDesc</body></html>"
+            return "<html><body style='width: 350px;'>$processInfo$processDesc$actionDesc$errorLink</body></html>"
         }
 
         private fun updateCrashButtonState() {
