@@ -1,0 +1,16 @@
+<idea-plugin>
+    <id>com.example.logkatplugin</id>
+    <name>Logkat Process Logger</name>
+    <vendor>Example</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.android</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Logkat Processes"
+                    secondary="false"
+                    icon="AllIcons.Actions.Execute"
+                    anchor="bottom"
+                    factoryClass="com.example.logkatplugin.LogkatToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
