@@ -56,16 +56,25 @@ object LogExplanationProvider {
         return "Подробности ошибки:\n$message\n\nСовет: Проанализируйте StackTrace."
     }
 
+    /**
+     * Возвращает пакет проекта. Пробуем манифест, если нет - берем по умолчанию.
+     */
     fun getProjectPackageName(project: Project): String? {
         try {
             val manifests = FilenameIndex.getFilesByName(project, "AndroidManifest.xml", GlobalSearchScope.projectScope(project))
             for (file in manifests) {
-                if (file is XmlFile) return file.rootTag?.getAttributeValue("package")
+                if (file is XmlFile) {
+                    val pkg = file.rootTag?.getAttributeValue("package")
+                    if (pkg != null) return pkg
+                }
             }
         } catch (e: Exception) {}
         return null
     }
 
+    /**
+     * Поиск названия приложения в ресурсах IDE
+     */
     fun getProjectAppName(project: Project): String? {
         try {
             val manifests = FilenameIndex.getFilesByName(project, "AndroidManifest.xml", GlobalSearchScope.projectScope(project))
@@ -86,15 +95,17 @@ object LogExplanationProvider {
     }
 
     private fun findStringResourceValue(project: Project, resName: String): String? {
-        val stringsFiles = FilenameIndex.getFilesByName(project, "strings.xml", GlobalSearchScope.projectScope(project))
-        for (psiFile in stringsFiles) {
-            if (psiFile is XmlFile) {
-                val tags = psiFile.rootTag?.findSubTags("string") ?: continue
-                for (tag in tags) {
-                    if (tag.getAttributeValue("name") == resName) return tag.value.text.trim()
+        try {
+            val stringsFiles = FilenameIndex.getFilesByName(project, "strings.xml", GlobalSearchScope.projectScope(project))
+            for (psiFile in stringsFiles) {
+                if (psiFile is XmlFile) {
+                    val tags = psiFile.rootTag?.findSubTags("string") ?: continue
+                    for (tag in tags) {
+                        if (tag.getAttributeValue("name") == resName) return tag.value.text.trim()
+                    }
                 }
             }
-        }
+        } catch (e: Exception) {}
         return null
     }
 
@@ -118,17 +129,21 @@ object LogExplanationProvider {
 
     @Synchronized
     fun writeToDictionary(projectPath: String?, pkg: String, label: String?, projectPkg: String?) {
-        if (projectPath == null || pkg == projectPkg || pkg.startsWith("[") || pkg.endsWith("]")) return
+        // Жесткая проверка: никогда не пишем ядро, свой проект или пустые пакеты
+        if (projectPath == null || pkg == projectPkg || pkg.contains("example") || pkg.startsWith("[") || pkg.endsWith("]")) return
+        
         val file = File(projectPath, DICTIONARY_FILENAME)
         if (!file.exists()) initDefaultDictionary(file)
         val lines = file.readLines().toMutableList()
         if (lines.any { it.startsWith("$pkg=") }) return
+
         val finalLabel = if (label.isNullOrEmpty() || label == pkg) "!" else label
         val section = when {
             pkg.contains("google") -> "[GOOGLE]"
             pkg.contains("android") || pkg.contains("system") -> "[SYSTEM]"
             else -> "[EXTERNAL]"
         }
+
         val index = lines.indexOfFirst { it.trim() == section }
         if (index != -1) lines.add(index + 1, "$pkg=$finalLabel")
         else lines.add("$pkg=$finalLabel")
@@ -145,107 +160,117 @@ object LogExplanationProvider {
         if (!file.parentFile.exists()) file.parentFile.mkdirs()
         file.writeText("""
 [PROCESSES]
-init=<b>Ядро (Init).</b> Первый процесс в системе, запускаемый ядром.
-system_server=<b>Ядро системы (System Server).</b> Управляет окнами, питанием, датчиками.
-surfaceflinger=<b>Графика (SurfaceFlinger).</b> Собирает кадры и выводит их на экран.
-audioserver=<b>Звуковая служба (AudioServer).</b> Управляет аудио-потоками.
-mediaserver=<b>Медиа-движок (MediaServer).</b> Работа камеры, видео и кодеков.
-zygote=<b>Материнский процесс (Zygote).</b> Процесс-шаблон для запуска приложений.
-logd=<b>Демон логирования (Logd).</b> Принимает и буферизирует все логи.
-servicemanager=<b>Диспетчер служб.</b> Реестр всех Binder-сервисов.
-hwservicemanager=<b>Диспетчер аппаратных служб.</b> Реестр для HAL-сервисов.
-netd=<b>Сетевой демон (Netd).</b> Управляет интерфейсами и брандмауэром.
-wpa_supplicant=<b>Wi-Fi Supplicant.</b> Управляет подключением к Wi-Fi сетям.
-keystore=<b>Хранилище ключей.</b> Защищенное хранилище паролей и сертификатов.
-gatekeeperd=<b>Сторож экрана (Gatekeeper).</b> Проверяет PIN-коды и пароли.
-statsd=<b>Сборщик статистики (Statsd).</b> Собирает метрики использования.
-dumpstate=<b>Сборщик отчета (Dumpstate).</b> Собирает логи для bug-репорта.
-tombstoned=<b>Регистратор падений.</b> Записывает дампы памяти при падении.
-incidentd=<b>Сборщик инцидентов.</b> Собирает отчеты о проблемах.
-apexd=<b>Менеджер APEX.</b> Управляет модульными системными компонентами.
-cameraserver=<b>Сервер камеры.</b> Управляет доступом к камере.
-drmserver=<b>Защита контента (DRM).</b> Управляет лицензиями медиа.
-vold=<b>Volume Daemon (Vold).</b> Управляет подключением дисков и SD-карт.
-installd=<b>Install Daemon.</b> Выполняет установку и удаление приложений.
-sensorservice=<b>Sensor Service.</b> Раздает данные с датчиков.
-renderengine=<b>Движок отрисовки.</b> Отвечает за интерфейс.
+ init=<b>Ядро (Init).</b> Первый процесс в системе, запускаемый ядром.
+ system_server=<b>Ядро системы (System Server).</b> Управляет окнами, питанием, датчиками.
+ surfaceflinger=<b>Графика (SurfaceFlinger).</b> Собирает кадры и выводит их на экран.
+ audioserver=<b>Звуковая служба (AudioServer).</b> Управляет аудио-потоками.
+ mediaserver=<b>Медиа-движок (MediaServer).</b> Работа камеры, видео и кодеков.
+ zygote=<b>Материнский процесс (Zygote).</b> Процесс-шаблон для запуска приложений.
+ logd=<b>Демон логирования (Logd).</b> Принимает и буферизирует все логи.
+ servicemanager=<b>Диспетчер служб.</b> Реестр всех Binder-сервисов.
+ hwservicemanager=<b>Диспетчер аппаратных служб.</b> Реестр для HAL-сервисов.
+ netd=<b>Сетевой демон (Netd).</b> Управляет интерфейсами и брандмауэром.
+ wpa_supplicant=<b>Wi-Fi Supplicant.</b> Управляет подключением к Wi-Fi сетям.
+ keystore=<b>Хранилище ключей.</b> Защищенное хранилище паролей и сертификатов.
+ gatekeeperd=<b>Сторож экрана (Gatekeeper).</b> Проверяет PIN-коды и пароли.
+ statsd=<b>Сборщик статистики (Statsd).</b> Собирает метрики использования.
+ dumpstate=<b>Сборщик отчета (Dumpstate).</b> Собирает логи для bug-репорта.
+ tombstoned=<b>Регистратор падений.</b> Записывает дампы памяти при падении.
+ incidentd=<b>Сборщик инцидентов.</b> Собирает отчеты о проблемах.
+ apexd=<b>Менеджер APEX.</b> Управляет модульными системными компонентами.
+ cameraserver=<b>Сервер камеры.</b> Управляет доступом к камере.
+ drmserver=<b>Защита контента (DRM).</b> Управляет лицензиями медиа.
+ vold=<b>Volume Daemon (Vold).</b> Управляет подключением дисков и SD-карт.
+ installd=<b>Install Daemon.</b> Выполняет установку и удаление приложений.
+ sensorservice=<b>Sensor Service.</b> Раздает данные с датчиков.
+ renderengine=<b>Движок отрисовки.</b> Отвечает за интерфейс.
+ init=<b>Ядро (Init).</b>
+ system_server=<b>System Server.</b>
+ surfaceflinger=<b>SurfaceFlinger.</b>
+ audioserver=<b>AudioServer.</b>
+ mediaserver=<b>MediaServer.</b>
+ zygote=<b>Zygote.</b>
+ installd=<b>Installd.</b>
 
-[ERRORS]
-NullPointerException=NullPointerException: Попытка обратиться к объекту null.
-IndexOutOfBoundsException=IndexOutOfBoundsException: Неверный индекс в массиве или списке.
-NetworkOnMainThreadException=NetworkOnMainThreadException: Сетевой запрос в UI-потоке!
-OutOfMemoryError=OutOfMemoryError: Нехватка оперативной памяти.
-Resources.NotFoundException=Resources.NotFoundException: Ресурс не найден. Проверьте ID.
-ClassCastException=ClassCastException: Неверное приведение типов объектов.
-SecurityException=SecurityException: Отсутствует разрешение. Проверьте Manifest.
-ActivityNotFoundException=ActivityNotFoundException: Не найден компонент для запуска Activity.
-CalledFromWrongThreadException=CalledFromWrongThreadException: Изменение UI не из главного потока.
-ANR=ANR: Главный поток заблокирован более чем на 5 сек.
+ [ERRORS]
+ NullPointerException=NullPointerException: Попытка обратиться к объекту null.
+ IndexOutOfBoundsException=IndexOutOfBoundsException: Неверный индекс в массиве или списке.
+ NetworkOnMainThreadException=NetworkOnMainThreadException: Сетевой запрос в UI-потоке!
+ OutOfMemoryError=OutOfMemoryError: Нехватка оперативной памяти.
+ Resources.NotFoundException=Resources.NotFoundException: Ресурс не найден. Проверьте ID.
+ ClassCastException=ClassCastException: Неверное приведение типов объектов.
+ SecurityException=SecurityException: Отсутствует разрешение. Проверьте Manifest.
+ ActivityNotFoundException=ActivityNotFoundException: Не найден компонент для запуска Activity.
+ CalledFromWrongThreadException=CalledFromWrongThreadException: Изменение UI не из главного потока.
+ ANR=ANR: Главный поток заблокирован более чем на 5 сек.
+ NullPointerException=NullPointerException: Обращение к null.
+ OutOfMemoryError=OutOfMemoryError: Нехватка памяти.
+ ANR=ANR: Приложение не отвечает.
         """.trimIndent())
     }
 
     private fun initDefaultDictionary(file: File) {
         if (!file.parentFile.exists()) file.parentFile.mkdirs()
         file.writeText("""
-[MY_PROJECT]
-# Твое приложение берется напрямую из IDE и сюда не пишется
+ # Своё приложение не записывается
 
-[GOOGLE]
-com.google.android.gms=Сервисы Google Play
-com.android.vending=Google Play Store
-com.google.android.googlequicksearchbox=Google Поиск
-com.google.android.apps.maps=Google Карты
-com.google.android.youtube=YouTube
+ [GOOGLE]
+ com.google.android.gms=Сервисы Google Play
+ com.android.vending=Google Play Store
+ com.google.android.googlequicksearchbox=Google Поиск
+ com.google.android.apps.maps=Google Карты
+ com.google.android.youtube=YouTube
 
-[SYSTEM]
-system_server=Система Android
-surfaceflinger=Графика (SurfaceFlinger)
-init=Ядро (Init)
-zygote=Запуск приложений (Zygote)
-zygote64=Запуск приложений (Zygote64)
-com.android.systemui=Интерфейс системы
-com.android.phone=Телефон / Радио
-com.android.settings=Настройки
-com.android.launcher3=Рабочий стол
-audioserver=Аудио-служба
-mediaserver=Медиа-сервер
-cameraserver=Сервер камеры
-logd=Служба логов
-servicemanager=Диспетчер Binder
-hwservicemanager=Диспетчер HAL
-netd=Сеть (Netd)
-wpa_supplicant=Wi-Fi (WPA)
-keystore=Хранилище ключей
-keystore2=Хранилище ключей 2
-gatekeeperd=Защита (Gatekeeper)
-vold=Менеджер памяти (Vold)
-installd=Менеджер установки
-statsd=Сборщик статистики
-dumpstate=Сборщик отчета
-tombstoned=Регистратор падений
-incidentd=Сборщик инцидентов
-apexd=Менеджер APEX
-drmserver=Защита контента (DRM)
-mediaextractor=Извлечение медиа
-mdnsd=Сетевое обнаружение (mDNS)
-wificond=Демон Wi-Fi
-time_daemon=Демон времени
-thermald=Термальный демон
-perfd=Производительность
-storaged=Монитор хранилища
-networkstack=Сетевой стек
-renderengine=Движок отрисовки
-sensorservice=Служба датчиков
-adreno=Драйвер GPU Adreno
-mali=Драйвер GPU Mali
+ [SYSTEM]
+ system_server=Система Android
+ surfaceflinger=Графика (SurfaceFlinger)
+ init=Ядро (Init)
+ zygote=Запуск приложений (Zygote)
+ zygote64=Запуск приложений (Zygote64)
+ com.android.systemui=Интерфейс системы
+ com.android.phone=Телефон / Радио
+ com.android.settings=Настройки
+ com.android.launcher3=Рабочий стол
+ audioserver=Аудио-служба
+ mediaserver=Медиа-сервер
+ cameraserver=Сервер камеры
+ logd=Служба логов
+ servicemanager=Диспетчер Binder
+ hwservicemanager=Диспетчер HAL
+ netd=Сеть (Netd)
+ wpa_supplicant=Wi-Fi (WPA)
+ keystore=Хранилище ключей
+ keystore2=Хранилище ключей 2
+ gatekeeperd=Защита (Gatekeeper)
+ vold=Менеджер памяти (Vold)
+ installd=Менеджер установки
+ statsd=Сборщик статистики
+ dumpstate=Сборщик отчета
+ tombstoned=Регистратор падений
+ incidentd=Сборщик инцидентов
+ apexd=Менеджер APEX
+ drmserver=Защита контента (DRM)
+ mediaextractor=Извлечение медиа
+ mdnsd=Сетевое обнаружение (mDNS)
+ wificond=Демон Wi-Fi
+ time_daemon=Демон времени
+ thermald=Термальный демон
+ perfd=Производительность
+ storaged=Монитор хранилища
+ networkstack=Сетевой стек
+ renderengine=Движок отрисовки
+ sensorservice=Служба датчиков
+ adreno=Драйвер GPU Adreno
+ mali=Драйвер GPU Mali
 
-[EXTERNAL]
-org.videolan.vlc=VLC Player
-com.whatsapp=WhatsApp
-com.instagram.android=Instagram
-com.facebook.katana=Facebook
+ [EXTERNAL]
+ org.videolan.vlc=VLC Player
+ com.whatsapp=WhatsApp
+ com.instagram.android=Instagram
+ com.facebook.katana=Facebook
 
-[UNSORTED]
+ [UNSORTED]
+
         """.trimIndent())
     }
 

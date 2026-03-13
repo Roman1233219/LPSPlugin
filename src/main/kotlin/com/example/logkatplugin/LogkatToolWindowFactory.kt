@@ -115,6 +115,18 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
         }
 
+        private val resetToDefaultButton = createToolbarButton(AllIcons.Actions.Rollback, "Сбросить всё к настройкам по умолчанию").apply {
+            addActionListener {
+                if (Messages.showYesNoDialog(project, "Восстановить словарь и описания по умолчанию? Все ваши правки будут удалены.", "Сброс", Messages.getWarningIcon()) == Messages.YES) {
+                    LogExplanationProvider.resetToDefault(project.basePath)
+                    packageToLabel.clear()
+                    loadInitialData()
+                    reloadTreeSafely()
+                    setStatusText("Сброшено к дефолту", false)
+                }
+            }
+        }
+
         private val clearButton = createToolbarButton(AllIcons.Actions.GC, "Очистить текущие логи")
         private val saveButton = createToolbarButton(AllIcons.Actions.MenuSaveall, "Сохранить логи в файл")
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
@@ -298,6 +310,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             leftToolbar.add(resStatusPanel)
             leftToolbar.add(openDictionaryButton)
             leftToolbar.add(openDescriptionsButton)
+            leftToolbar.add(resetToDefaultButton)
 
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             filterGroupPanel.border = BorderFactory.createCompoundBorder(
@@ -538,7 +551,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     val isSystem = pkg.contains("android") || pkg.contains("system")
                     val shouldResolve = when (mode) {
                         ResolutionMode.NONE -> false
-                        ResolutionMode.TEST_ONLY -> pkg.contains("example")
+                        ResolutionMode.TEST_ONLY -> pkg.contains("example") || pkg.contains("my")
                         ResolutionMode.INSTALLED_ONLY -> !isSystem
                         ResolutionMode.ALL -> true
                     }
