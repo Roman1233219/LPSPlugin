@@ -1,6 +1,7 @@
 <idea-plugin>
     <id>com.example.logkatplugin</id>
     <name>Logkat Process Logger</name>
+    <version>2.0.0</version>
     <vendor>Example</vendor>
 
     <depends>com.intellij.modules.platform</depends>
