@@ -1,0 +1,8 @@
+[PROCESSES]
+init=<b>Ядро (Init).</b>
+system_server=<b>System Server.</b>
+surfaceflinger=<b>SurfaceFlinger.</b>
+
+[ERRORS]
+NullPointerException=NullPointerException: Обращение к null объекту.
+ANR=ANR: Приложение зависло.

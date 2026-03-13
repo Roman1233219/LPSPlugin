@@ -36,6 +36,10 @@ tasks {
         enabled = false
     }
 
+    runIde {
+        maxHeapSize = "2g" // Увеличиваем кучу для отладочной IDE
+    }
+
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions {
             jvmTarget = "17"

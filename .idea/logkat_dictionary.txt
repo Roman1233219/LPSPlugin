@@ -1,0 +1,26 @@
+[MY_PROJECT]
+# Сюда плагин запишет твое приложение
+
+[GOOGLE]
+com.google.android.gms=Сервисы Google Play
+com.android.vending=Google Play Store
+
+[SYSTEM]
+system_server=Система Android
+surfaceflinger=Графика (SurfaceFlinger)
+init=Ядро (Init)
+zygote=Запуск приложений (Zygote)
+com.android.systemui=Интерфейс системы
+com.android.phone=Телефон / Радио
+audioserver=Аудио-служба
+mediaserver=Медиа-сервер
+cameraserver=Сервер камеры
+logd=Служба логов
+netd=Сеть (Netd)
+installd=Менеджер установки
+
+[EXTERNAL]
+org.videolan.vlc=VLC Player
+
+[UNSORTED]
+# Неопознанные процессы
