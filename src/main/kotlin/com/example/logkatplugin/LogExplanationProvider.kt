@@ -153,6 +153,46 @@ object LogExplanationProvider {
         file.writeText(lines.joinToString("\n"))
     }
 
+    @Synchronized
+    fun syncPackages(projectPath: String?, userPackages: List<String>, systemPackages: List<String>) {
+        if (projectPath == null) return
+        val file = File(projectPath, DICTIONARY_FILENAME)
+        if (!file.exists()) initDefaultDictionary(file)
+        
+        val lines = file.readLines().toMutableList()
+        val existingPackages = mutableSetOf<String>()
+        
+        // Собираем все пакеты, которые уже есть в файле
+        lines.forEach { line ->
+            if (line.contains("=") && !line.startsWith("#") && !line.startsWith("[")) {
+                existingPackages.add(line.split("=")[0].trim())
+            }
+        }
+
+        fun addNewPackages(packages: List<String>, sectionName: String) {
+            val toAdd = packages.filter { it !in existingPackages }.map { "$it=!" }
+            if (toAdd.isEmpty()) return
+            
+            var sectionIndex = lines.indexOfFirst { it.trim() == sectionName }
+            if (sectionIndex == -1) {
+                lines.add("")
+                lines.add(sectionName)
+                sectionIndex = lines.size - 1
+            }
+            lines.addAll(sectionIndex + 1, toAdd)
+            existingPackages.addAll(packages)
+        }
+
+        // 1. Добавляем системные в [SYSTEM]
+        addNewPackages(systemPackages, "[SYSTEM]")
+        
+        // 2. Добавляем пользовательские в [EXTERNAL]
+        addNewPackages(userPackages, "[EXTERNAL]")
+
+        file.writeText(lines.joinToString("\n"))
+        LocalFileSystem.getInstance().refreshIoFiles(listOf(file))
+    }
+
     private fun refreshFiles(projectPath: String?) {
         if (projectPath == null) return
         val files = listOf(
@@ -238,31 +278,31 @@ SecurityException=Ошибка безопасности. Отсутствует 
  [SYSTEM_CORE]
  # СИСТЕМНЫЕ ПРОЦЕССЫ: ИМЕНА
  system_server=Система Android
- surfaceflinger=Графика (SurfaceFlinger)
- init=Ядро (Init)
- zygote=Запуск приложений (Zygote)
- audioserver=Аудио-служба
- mediaserver=Медиа-сервер
- cameraserver=Сервер камеры
- logd=Служба логов
- servicemanager=Диспетчер Binder
- netd=Сеть (Netd)
- vold=Менеджер памяти
- installd=Менеджер установки
- hwservicemanager=Диспетчер HAL
- wpa_supplicant=Wi-Fi Служба
- keystore=Хранилище ключей
- gatekeeperd=Служба защиты
- statsd=Сборщик статистики
+ surfaceflinger=Graphics (SurfaceFlinger)
+ init=Core (Init)
+ zygote=App Launcher (Zygote)
+ audioserver=Audio Service
+ mediaserver=Media Server
+ cameraserver=Camera Server
+ logd=Log Service
+ servicemanager=Binder Manager
+ netd=Network (Netd)
+ vold=Storage Manager
+ installd=Install Manager
+ hwservicemanager=HAL Manager
+ wpa_supplicant=Wi-Fi Service
+ keystore=Keystore
+ gatekeeperd=Security Service
+ statsd=Stats Collector
 
  [SYSTEM]
  # СИСТЕМНЫЕ ПАКЕТЫ: ИМЕНА
- com.android.systemui=Интерфейс системы
- com.android.phone=Телефон / Радио
- com.android.settings=Настройки
- com.android.launcher3=Рабочий стол
- com.android.providers.settings=Хранилище настроек
- com.android.vcalendar=Календарь (Система)
+ com.android.systemui=System UI
+ com.android.phone=Phone / Radio
+ com.android.settings=Settings
+ com.android.launcher3=Launcher
+ com.android.providers.settings=Settings Storage
+ com.android.vcalendar=Calendar (System)
 
  [EXTERNAL]
  org.videolan.vlc=VLC Player

@@ -127,6 +127,64 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             }
         }
 
+        private val bulkUpdateLabelsButton = createToolbarButton(AllIcons.Actions.Refresh, "Синхронизировать пакеты из телефона").apply {
+            addActionListener {
+                val device = currentDevice
+                if (device == null) {
+                    Messages.showErrorDialog(project, "Устройство не выбрано", "Ошибка")
+                    return@addActionListener
+                }
+                if (Messages.showYesNoDialog(project, "Синхронизация пакетов может занять несколько секунд. Продолжить?", "Синхронизация", Messages.getQuestionIcon()) == Messages.YES) {
+                    isEnabled = false
+                    setStatusText("🔍 Синхронизация пакетов...", true)
+                    
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        try {
+                            val userPackages = mutableListOf<String>()
+                            val systemPackages = mutableListOf<String>()
+                            
+                            val receiver = object : MultiLineReceiver() {
+                                var currentList: MutableList<String>? = null
+                                override fun processNewLines(lines: Array<out String>) {
+                                    lines.forEach { line ->
+                                        if (line.startsWith("package:")) {
+                                            currentList?.add(line.removePrefix("package:").trim())
+                                        }
+                                    }
+                                }
+                                override fun isCancelled() = isDisposed
+                            }
+
+                            // 1. Получаем пользовательские пакеты
+                            receiver.currentList = userPackages
+                            device.executeShellCommand("pm list packages -3", receiver, 0, TimeUnit.MILLISECONDS)
+                            
+                            // 2. Получаем системные пакеты
+                            receiver.currentList = systemPackages
+                            device.executeShellCommand("pm list packages -s", receiver, 0, TimeUnit.MILLISECONDS)
+                            
+                            LogExplanationProvider.syncPackages(project.basePath, userPackages, systemPackages)
+                            
+                            ApplicationManager.getApplication().invokeLater {
+                                if (!isDisposed) {
+                                    packageToLabel.clear()
+                                    loadInitialData()
+                                    reloadTreeSafely()
+                                    isEnabled = true
+                                    setStatusText("Готово", false)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            ApplicationManager.getApplication().invokeLater {
+                                setStatusText("Ошибка синхронизации", false)
+                                isEnabled = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         private val clearButton = createToolbarButton(AllIcons.Actions.GC, "Очистить текущие логи")
         private val saveButton = createToolbarButton(AllIcons.Actions.MenuSaveall, "Сохранить логи в файл")
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
@@ -311,6 +369,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             leftToolbar.add(openDictionaryButton)
             leftToolbar.add(openDescriptionsButton)
             leftToolbar.add(resetToDefaultButton)
+            leftToolbar.add(bulkUpdateLabelsButton)
 
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             filterGroupPanel.border = BorderFactory.createCompoundBorder(
@@ -526,7 +585,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 if (isDisposed) return@executeOnPooledThread
                 ApplicationManager.getApplication().invokeLater { if (!isDisposed) { resStatusPanel.isVisible = true; stopResolutionButton.isVisible = true } }
                 
-                // Сначала обрабатываем СВОЁ приложение
                 if (projectPkg != null && packages.contains(projectPkg)) {
                     val myAppName = LogExplanationProvider.getProjectAppName(project)
                     if (myAppName != null) {
