@@ -1,6 +1,9 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     id("java")
-    id("org.jetbrains.intellij") version "1.17.4"
+    // Плагин версии 2.x для поддержки новых версий IDE (2024-2025)
+    id("org.jetbrains.intellij.platform") version "2.2.1"
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
 }
 
@@ -9,41 +12,64 @@ version = "2.0.0"
 
 repositories {
     mavenCentral()
+    google()
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
+// Устанавливаем единую версию Java для всего проекта
 kotlin {
     jvmToolchain(17)
 }
 
-intellij {
-    // ВНИМАНИЕ: Проверьте путь к установленной Android Studio на вашем компьютере!
-    // Обычно это "C:/Program Files/Android/Android Studio" или путь, куда вы распаковали архив.
-    localPath.set("C:/Program Files/Android/Android Studio")
-    plugins.set(listOf("android", "com.intellij.java"))
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+dependencies {
+    intellijPlatform {
+        // Подключение локальной IDE. Этого достаточно, чтобы runIde знал, что запускать.
+        local(file("D:/Android Studio"))
+
+        // Явно подключаем плагины, которые содержат ddmlib и Java API
+        bundledPlugin("org.jetbrains.android")
+        bundledPlugin("com.intellij.java")
+
+        // Инструментарий для сборки плагина
+        instrumentationTools()
+    }
+}
+
+intellijPlatform {
+    pluginConfiguration {
+        id.set("com.example.logkatplugin")
+        name.set("Logkat Process Logger")
+
+        ideaVersion {
+            sinceBuild.set("232")
+            untilBuild.set("253.*")
+        }
+    }
 }
 
 tasks {
-    patchPluginXml {
-        sinceBuild.set("232")
-        untilBuild.set("253.*")
+    runIde {
+        // Передача системных свойств для корректного запуска в режиме Android Studio
+        systemProperty("idea.platform.prefix", "AndroidStudio")
+        maxHeapSize = "2g"
     }
 
-    signPlugin { enabled = false }
-    publishPlugin { enabled = false }
-    
-    // Отключаем задачу buildSearchableOptions, так как она часто падает при использовании localPath
+    withType<KotlinCompile>().configureEach {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            freeCompilerArgs.add("-Xskip-metadata-version-check")
+        }
+    }
+
+    // ОТКЛЮЧАЕМ создание индекса поиска, чтобы сборка шла быстрее и без ошибок GUI
     buildSearchableOptions {
         enabled = false
-    }
-
-    runIde {
-        maxHeapSize = "2g" // Увеличиваем кучу для отладочной IDE
-    }
-
-    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions {
-            jvmTarget = "17"
-            freeCompilerArgs = listOf("-Xskip-metadata-version-check")
-        }
     }
 }

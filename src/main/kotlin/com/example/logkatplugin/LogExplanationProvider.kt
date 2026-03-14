@@ -1,6 +1,7 @@
 package com.example.logkatplugin
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
@@ -12,6 +13,7 @@ object LogExplanationProvider {
     const val DESCRIPTIONS_FILENAME = ".idea/logkat_descriptions.txt"
 
     private val processDescriptions = mutableMapOf<String, String>()
+    private val tagDescriptions = mutableMapOf<String, String>()
     private val errorDescriptions = mutableMapOf<String, String>()
 
     fun loadAllDescriptions(projectPath: String?) {
@@ -20,21 +22,27 @@ object LogExplanationProvider {
         if (!file.exists()) initDefaultDescriptions(file)
 
         processDescriptions.clear()
+        tagDescriptions.clear()
         errorDescriptions.clear()
 
         var currentSection = ""
         try {
-            file.readLines().forEach { line ->
-                val trimmed = line.trim()
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
-                if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                    currentSection = trimmed.uppercase()
-                } else if (trimmed.contains("=")) {
-                    val parts = trimmed.split("=", limit = 2)
-                    val key = parts[0].trim()
-                    val value = parts[1].trim()
-                    if (currentSection == "[PROCESSES]") processDescriptions[key] = value
-                    else if (currentSection == "[ERRORS]") errorDescriptions[key] = value
+            if (file.exists()) {
+                file.readLines().forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+                    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                        currentSection = trimmed.uppercase()
+                    } else if (trimmed.contains("=")) {
+                        val parts = trimmed.split("=", limit = 2)
+                        val key = parts[0].trim()
+                        val value = parts[1].trim()
+                        when (currentSection) {
+                            "[PROCESSES]" -> processDescriptions[key] = value
+                            "[TAGS]" -> tagDescriptions[key] = value
+                            "[ERRORS]" -> errorDescriptions[key] = value
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {}
@@ -44,7 +52,7 @@ object LogExplanationProvider {
         val desc = processDescriptions[pkg] ?: when {
             pkg.contains("google") -> "Службы и сервисы Google."
             pkg.contains("android") -> "Системный компонент ОС Android."
-            else -> "Пакет: $pkg"
+            else -> "Данных нет"
         }
         return "<html><body style='width: 250px;'>$desc</body></html>"
     }
@@ -56,9 +64,6 @@ object LogExplanationProvider {
         return "Подробности ошибки:\n$message\n\nСовет: Проанализируйте StackTrace."
     }
 
-    /**
-     * Возвращает пакет проекта. Пробуем манифест, если нет - берем по умолчанию.
-     */
     fun getProjectPackageName(project: Project): String? {
         try {
             val manifests = FilenameIndex.getFilesByName(project, "AndroidManifest.xml", GlobalSearchScope.projectScope(project))
@@ -72,9 +77,6 @@ object LogExplanationProvider {
         return null
     }
 
-    /**
-     * Поиск названия приложения в ресурсах IDE
-     */
     fun getProjectAppName(project: Project): String? {
         try {
             val manifests = FilenameIndex.getFilesByName(project, "AndroidManifest.xml", GlobalSearchScope.projectScope(project))
@@ -115,12 +117,14 @@ object LogExplanationProvider {
         if (!file.exists()) initDefaultDictionary(file)
         val result = mutableMapOf<String, String>()
         try {
-            file.readLines().forEach { line ->
-                val trimmed = line.trim()
-                if (trimmed.contains("=") && !trimmed.startsWith("#") && !trimmed.startsWith("[")) {
-                    val parts = trimmed.split("=", limit = 2)
-                    val value = parts[1].trim()
-                    if (value != "!") result[parts[0].trim()] = value
+            if (file.exists()) {
+                file.readLines().forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.contains("=") && !trimmed.startsWith("#") && !trimmed.startsWith("[")) {
+                        val parts = trimmed.split("=", limit = 2)
+                        val value = parts[1].trim()
+                        if (value != "!") result[parts[0].trim()] = value
+                    }
                 }
             }
         } catch (e: Exception) {}
@@ -129,7 +133,6 @@ object LogExplanationProvider {
 
     @Synchronized
     fun writeToDictionary(projectPath: String?, pkg: String, label: String?, projectPkg: String?) {
-        // Жесткая проверка: никогда не пишем ядро, свой проект или пустые пакеты
         if (projectPath == null || pkg == projectPkg || pkg.contains("example") || pkg.startsWith("[") || pkg.endsWith("]")) return
         
         val file = File(projectPath, DICTIONARY_FILENAME)
@@ -150,62 +153,73 @@ object LogExplanationProvider {
         file.writeText(lines.joinToString("\n"))
     }
 
+    private fun refreshFiles(projectPath: String?) {
+        if (projectPath == null) return
+        val files = listOf(
+            File(projectPath, DICTIONARY_FILENAME),
+            File(projectPath, DESCRIPTIONS_FILENAME)
+        )
+        LocalFileSystem.getInstance().refreshIoFiles(files)
+    }
+
     fun resetToDefault(projectPath: String?) {
         if (projectPath == null) return
         initDefaultDictionary(File(projectPath, DICTIONARY_FILENAME))
         initDefaultDescriptions(File(projectPath, DESCRIPTIONS_FILENAME))
+        refreshFiles(projectPath)
+        loadAllDescriptions(projectPath)
     }
 
     private fun initDefaultDescriptions(file: File) {
         if (!file.parentFile.exists()) file.parentFile.mkdirs()
         file.writeText("""
 [PROCESSES]
- init=<b>Ядро (Init).</b> Первый процесс в системе, запускаемый ядром.
- system_server=<b>Ядро системы (System Server).</b> Управляет окнами, питанием, датчиками.
- surfaceflinger=<b>Графика (SurfaceFlinger).</b> Собирает кадры и выводит их на экран.
- audioserver=<b>Звуковая служба (AudioServer).</b> Управляет аудио-потоками.
- mediaserver=<b>Медиа-движок (MediaServer).</b> Работа камеры, видео и кодеков.
- zygote=<b>Материнский процесс (Zygote).</b> Процесс-шаблон для запуска приложений.
- logd=<b>Демон логирования (Logd).</b> Принимает и буферизирует все логи.
- servicemanager=<b>Диспетчер служб.</b> Реестр всех Binder-сервисов.
- hwservicemanager=<b>Диспетчер аппаратных служб.</b> Реестр для HAL-сервисов.
- netd=<b>Сетевой демон (Netd).</b> Управляет интерфейсами и брандмауэром.
- wpa_supplicant=<b>Wi-Fi Supplicant.</b> Управляет подключением к Wi-Fi сетям.
- keystore=<b>Хранилище ключей.</b> Защищенное хранилище паролей и сертификатов.
- gatekeeperd=<b>Сторож экрана (Gatekeeper).</b> Проверяет PIN-коды и пароли.
- statsd=<b>Сборщик статистики (Statsd).</b> Собирает метрики использования.
- dumpstate=<b>Сборщик отчета (Dumpstate).</b> Собирает логи для bug-репорта.
- tombstoned=<b>Регистратор падений.</b> Записывает дампы памяти при падении.
- incidentd=<b>Сборщик инцидентов.</b> Собирает отчеты о проблемах.
- apexd=<b>Менеджер APEX.</b> Управляет модульными системными компонентами.
- cameraserver=<b>Сервер камеры.</b> Управляет доступом к камере.
- drmserver=<b>Защита контента (DRM).</b> Управляет лицензиями медиа.
- vold=<b>Volume Daemon (Vold).</b> Управляет подключением дисков и SD-карт.
- installd=<b>Install Daemon.</b> Выполняет установку и удаление приложений.
- sensorservice=<b>Sensor Service.</b> Раздает данные с датчиков.
- renderengine=<b>Движок отрисовки.</b> Отвечает за интерфейс.
- init=<b>Ядро (Init).</b>
- system_server=<b>System Server.</b>
- surfaceflinger=<b>SurfaceFlinger.</b>
- audioserver=<b>AudioServer.</b>
- mediaserver=<b>MediaServer.</b>
- zygote=<b>Zygote.</b>
- installd=<b>Installd.</b>
+system_server=Ядро системы Android. Управляет всеми окнами, питанием, уведомлениями и связью между приложениями.
+surfaceflinger=Графика (SurfaceFlinger). Собирает кадры и выводит их на экран.
+init=Первый процесс в системе, запускаемый ядром.
+zygote=Материнский процесс для всех Android-приложений.
+audioserver=Звуковая служба. Управляет аудио-потоками.
+mediaserver=Работа камеры, видео и кодеков.
+logd=Демон логирования. Принимает и буферизирует все логи.
+servicemanager=Диспетчер служб. Реестр всех Binder-сервисов.
+hwservicemanager=Диспетчер аппаратных служб (HAL).
+netd=Сетевой демон. Управляет интерфейсами и брандмауэром.
+wpa_supplicant=Управление Wi-Fi подключениями.
+keystore=Хранилище ключей и сертификатов.
+gatekeeperd=Проверка PIN-кодов и паролей.
+vold=Менеджер памяти и внешних накопителей.
+installd=Менеджер установки приложений.
+statsd=Сборщик статистики системы.
+dumpstate=Сборщик отчетов об ошибках.
+tombstoned=Регистратор падений (дампов памяти).
+incidentd=Сборщик инцидентов.
+apexd=Менеджер системных модулей APEX.
+drmserver=Защита авторских прав медиа.
+mediaextractor=Извлечение метаданных медиа-файлов.
+mdnsd=Сетевое обнаружение устройств.
+wificond=Низкоуровневая служба Wi-Fi.
+time_daemon=Синхронизация времени.
+thermald=Контроль температуры устройства.
+perfd=Оптимизация производительности.
+storaged=Мониторинг состояния памяти.
+networkstack=Сетевой стек Android.
+renderengine=Движок отрисовки интерфейса.
+sensorservice=Управление датчиками (гироскоп, акселерометр).
+adreno=Драйвер графического процессора Adreno.
+mali=Драйвер графического процессора Mali.
 
- [ERRORS]
- NullPointerException=NullPointerException: Попытка обратиться к объекту null.
- IndexOutOfBoundsException=IndexOutOfBoundsException: Неверный индекс в массиве или списке.
- NetworkOnMainThreadException=NetworkOnMainThreadException: Сетевой запрос в UI-потоке!
- OutOfMemoryError=OutOfMemoryError: Нехватка оперативной памяти.
- Resources.NotFoundException=Resources.NotFoundException: Ресурс не найден. Проверьте ID.
- ClassCastException=ClassCastException: Неверное приведение типов объектов.
- SecurityException=SecurityException: Отсутствует разрешение. Проверьте Manifest.
- ActivityNotFoundException=ActivityNotFoundException: Не найден компонент для запуска Activity.
- CalledFromWrongThreadException=CalledFromWrongThreadException: Изменение UI не из главного потока.
- ANR=ANR: Главный поток заблокирован более чем на 5 сек.
- NullPointerException=NullPointerException: Обращение к null.
- OutOfMemoryError=OutOfMemoryError: Нехватка памяти.
- ANR=ANR: Приложение не отвечает.
+[TAGS]
+DisplayManagerService=Экран: Система меняет частоту обновления (например, 120Гц) или режим отображения для окна.
+ActivityManager=Управление активностями и процессами приложений.
+WindowManager=Управление окнами и их расположением на экране.
+InputDispatcher=Обработка касаний и нажатий клавиш.
+
+[ERRORS]
+NullPointerException=Попытка обращения к объекту, который не был инициализирован (null).
+IndexOutOfBoundsException=Индекс вне границ массива или списка.
+NetworkOnMainThreadException=Попытка выполнить сетевой запрос в главном (UI) потоке.
+OutOfMemoryError=Приложению не хватило оперативной памяти для работы.
+SecurityException=Ошибка безопасности. Отсутствует необходимое разрешение (Permission).
         """.trimIndent())
     }
 
@@ -221,47 +235,34 @@ object LogExplanationProvider {
  com.google.android.apps.maps=Google Карты
  com.google.android.youtube=YouTube
 
- [SYSTEM]
+ [SYSTEM_CORE]
+ # СИСТЕМНЫЕ ПРОЦЕССЫ: ИМЕНА
  system_server=Система Android
  surfaceflinger=Графика (SurfaceFlinger)
  init=Ядро (Init)
  zygote=Запуск приложений (Zygote)
- zygote64=Запуск приложений (Zygote64)
- com.android.systemui=Интерфейс системы
- com.android.phone=Телефон / Радио
- com.android.settings=Настройки
- com.android.launcher3=Рабочий стол
  audioserver=Аудио-служба
  mediaserver=Медиа-сервер
  cameraserver=Сервер камеры
  logd=Служба логов
  servicemanager=Диспетчер Binder
- hwservicemanager=Диспетчер HAL
  netd=Сеть (Netd)
- wpa_supplicant=Wi-Fi (WPA)
- keystore=Хранилище ключей
- keystore2=Хранилище ключей 2
- gatekeeperd=Защита (Gatekeeper)
- vold=Менеджер памяти (Vold)
+ vold=Менеджер памяти
  installd=Менеджер установки
+ hwservicemanager=Диспетчер HAL
+ wpa_supplicant=Wi-Fi Служба
+ keystore=Хранилище ключей
+ gatekeeperd=Служба защиты
  statsd=Сборщик статистики
- dumpstate=Сборщик отчета
- tombstoned=Регистратор падений
- incidentd=Сборщик инцидентов
- apexd=Менеджер APEX
- drmserver=Защита контента (DRM)
- mediaextractor=Извлечение медиа
- mdnsd=Сетевое обнаружение (mDNS)
- wificond=Демон Wi-Fi
- time_daemon=Демон времени
- thermald=Термальный демон
- perfd=Производительность
- storaged=Монитор хранилища
- networkstack=Сетевой стек
- renderengine=Движок отрисовки
- sensorservice=Служба датчиков
- adreno=Драйвер GPU Adreno
- mali=Драйвер GPU Mali
+
+ [SYSTEM]
+ # СИСТЕМНЫЕ ПАКЕТЫ: ИМЕНА
+ com.android.systemui=Интерфейс системы
+ com.android.phone=Телефон / Радио
+ com.android.settings=Настройки
+ com.android.launcher3=Рабочий стол
+ com.android.providers.settings=Хранилище настроек
+ com.android.vcalendar=Календарь (Система)
 
  [EXTERNAL]
  org.videolan.vlc=VLC Player
@@ -277,6 +278,36 @@ object LogExplanationProvider {
     fun getFallbackLabel(pkg: String): String? = null
 
     fun getSmartLogExplanation(pkgName: String?, tag: String, message: String, level: String): String {
-        return "<html><body><b>Процесс:</b> ${pkgName ?: "Неизвестно"}<br><b>Тег:</b> $tag<br><hr>$message</body></html>"
+        val processDesc = pkgName?.let { processDescriptions[it] } ?: "Данных нет"
+        
+        val sb = StringBuilder("<html><body style='width: 350px; padding: 2px;'>")
+        sb.append("<div style='font-size: 14px;'><b>Отправитель:</b> ${pkgName ?: "Неизвестно"}</div>")
+        sb.append("<div style='margin-top: 4px;'>$processDesc</div>")
+        
+        val tagDesc = tagDescriptions[tag]
+        val foundError = errorDescriptions.entries.find { message.contains(it.key, ignoreCase = true) }
+        
+        if (level == "E" || tagDesc != null) {
+            sb.append("<hr style='border: none; border-top: 1px solid #777; margin: 8px 0;'>")
+            
+            if (tagDesc != null) {
+                sb.append("<div>$tagDesc</div>")
+            }
+            
+            if (level == "E") {
+                if (tagDesc != null) sb.append("<div style='margin-top: 8px;'></div>")
+                
+                if (foundError != null) {
+                    sb.append("<div><b>Ошибка:</b> ${foundError.key}</div>")
+                    sb.append("<div style='margin-top: 4px;'>${foundError.value}</div>")
+                } else {
+                    sb.append("<div><b>Ошибка:</b> Данных нет.</div>")
+                    sb.append("<div style='margin-top: 4px;'>Для описания изучите <a href='show_stacktrace' style='color: #589df6;'>StackTrace</a>.</div>")
+                }
+            }
+        }
+        
+        sb.append("</body></html>")
+        return sb.toString()
     }
 }
