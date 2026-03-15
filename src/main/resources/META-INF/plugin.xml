@@ -2,7 +2,18 @@
     <id>com.example.logkatplugin</id>
     <name>Logkat Process Logger</name>
     <version>2.0.0</version>
-    <vendor>Example</vendor>
+    <vendor>Roman Dev</vendor>
+
+    <description><![CDATA[
+      <h1>Logkat Viewer & Process Analyzer</h1>
+      <p>Профессиональный инструмент для работы с логами Android, который превращает хаос из строк в структурированное дерево.</p>
+      <ul>
+        <li><b>Умная фильтрация:</b> Автоматическое распределение процессов по 11 категориям (Связь, Медиа, Системные службы, Низкоуровневые процессы и др.).</li>
+        <li><b>Синхронизация иконок:</b> Глубокая интеграция с устройством для получения реальных иконок и имен приложений.</li>
+        <li><b>Интеллектуальный помощник:</b> Нажмите "Что это?", чтобы получить подробное описание управляющего процесса или расшифровку ошибки из встроенной базы знаний.</li>
+        <li><b>Полная портативность:</b> Плагин автоматически разворачивает необходимые инструменты в любом новом проекте.</li>
+      </ul>
+    ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.android</depends>
@@ -10,7 +21,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Logkat Processes"
                     secondary="false"
-                    icon="AllIcons.Actions.Execute"
+                    icon="AllIcons.Actions.Find"
                     anchor="bottom"
                     factoryClass="com.example.logkatplugin.LogkatToolWindowFactory"/>
     </extensions>

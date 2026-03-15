@@ -15,8 +15,10 @@ object LogExplanationProvider {
     private val processDescriptions = mutableMapOf<String, String>()
     private val tagDescriptions = mutableMapOf<String, String>()
     private val errorDescriptions = mutableMapOf<String, String>()
+    private var lastProjectPath: String? = null
 
     fun loadAllDescriptions(projectPath: String?) {
+        lastProjectPath = projectPath
         if (projectPath == null) return
         val file = File(projectPath, DESCRIPTIONS_FILENAME)
         if (!file.exists()) initDefaultDescriptions(file)
@@ -49,17 +51,18 @@ object LogExplanationProvider {
     }
 
     fun getRussianProcessDescription(pkg: String): String {
-        val desc = processDescriptions[pkg] ?: when {
+        val raw = processDescriptions[pkg]
+        val desc = if (raw == "!") "Данных нет" else raw ?: when {
             pkg.contains("google") -> "Службы и сервисы Google."
             pkg.contains("android") -> "Системный компонент ОС Android."
             else -> "Данных нет"
         }
-        return "<html><body style='width: 250px;'>$desc</body></html>"
+        return "<html><body style='width: 300px;'>$desc</body></html>"
     }
 
     fun getDetailedStackTraceExplanation(message: String): String {
         for ((key, explanation) in errorDescriptions) {
-            if (message.contains(key, ignoreCase = true)) return explanation
+            if (explanation != "!" && message.contains(key, ignoreCase = true)) return explanation
         }
         return "Подробности ошибки:\n$message\n\nСовет: Проанализируйте StackTrace."
     }
@@ -138,18 +141,34 @@ object LogExplanationProvider {
         val file = File(projectPath, DICTIONARY_FILENAME)
         if (!file.exists()) initDefaultDictionary(file)
         val lines = file.readLines().toMutableList()
-        if (lines.any { it.startsWith("$pkg=") }) return
-
+        
         val finalLabel = if (label.isNullOrEmpty() || label == pkg) "!" else label
-        val section = when {
-            pkg.contains("google") -> "[GOOGLE]"
-            pkg.contains("android") || pkg.contains("system") -> "[SYSTEM]"
-            else -> "[EXTERNAL]"
-        }
+        if (finalLabel == "!") return // Не тратим время, если имени все равно нет
 
-        val index = lines.indexOfFirst { it.trim() == section }
-        if (index != -1) lines.add(index + 1, "$pkg=$finalLabel")
-        else lines.add("$pkg=$finalLabel")
+        // Проверяем, есть ли уже этот пакет
+        val existingIndex = lines.indexOfFirst { it.startsWith("$pkg=") }
+        
+        if (existingIndex != -1) {
+            val currentVal = lines[existingIndex].split("=")[1].trim()
+            if (currentVal == "!") {
+                // Если было "нет данных", заменяем на реальное имя
+                lines[existingIndex] = "$pkg=$finalLabel"
+            } else {
+                // Если имя уже есть, не трогаем (бережем ручные правки)
+                return
+            }
+        } else {
+            // Новая запись
+            val section = when {
+                pkg.contains("google") -> "[GOOGLE]"
+                pkg.contains("android") || pkg.contains("system") -> "[SYSTEM]"
+                else -> "[EXTERNAL]"
+            }
+            val sectionIndex = lines.indexOfFirst { it.trim() == section }
+            if (sectionIndex != -1) lines.add(sectionIndex + 1, "$pkg=$finalLabel")
+            else lines.add("$pkg=$finalLabel")
+        }
+        
         file.writeText(lines.joinToString("\n"))
     }
 
@@ -162,7 +181,6 @@ object LogExplanationProvider {
         val lines = file.readLines().toMutableList()
         val existingPackages = mutableSetOf<String>()
         
-        // Собираем все пакеты, которые уже есть в файле
         lines.forEach { line ->
             if (line.contains("=") && !line.startsWith("#") && !line.startsWith("[")) {
                 existingPackages.add(line.split("=")[0].trim())
@@ -183,10 +201,7 @@ object LogExplanationProvider {
             existingPackages.addAll(packages)
         }
 
-        // 1. Добавляем системные в [SYSTEM]
         addNewPackages(systemPackages, "[SYSTEM]")
-        
-        // 2. Добавляем пользовательские в [EXTERNAL]
         addNewPackages(userPackages, "[EXTERNAL]")
 
         file.writeText(lines.joinToString("\n"))
@@ -241,7 +256,7 @@ wificond=Низкоуровневая служба Wi-Fi.
 time_daemon=Синхронизация времени.
 thermald=Контроль температуры устройства.
 perfd=Оптимизация производительности.
-storaged=Мониторинг состояния памяти.
+storaged=Менеджер состояний памяти.
 networkstack=Сетевой стек Android.
 renderengine=Движок отрисовки интерфейса.
 sensorservice=Управление датчиками (гироскоп, акселерометр).
@@ -315,35 +330,76 @@ SecurityException=Ошибка безопасности. Отсутствует 
         """.trimIndent())
     }
 
+    @Synchronized
+    private fun writeToDescriptions(section: String, key: String, value: String) {
+        val path = lastProjectPath ?: return
+        val file = File(path, DESCRIPTIONS_FILENAME)
+        if (!file.exists()) initDefaultDescriptions(file)
+        
+        val lines = file.readLines().toMutableList()
+        if (lines.any { it.startsWith("$key=") }) return
+
+        val sectionName = section.uppercase()
+        val index = lines.indexOfFirst { it.trim().uppercase() == sectionName }
+        if (index != -1) {
+            lines.add(index + 1, "$key=$value")
+        } else {
+            lines.add("")
+            lines.add(sectionName)
+            lines.add("$key=$value")
+        }
+        file.writeText(lines.joinToString("\n"))
+    }
+
+    private fun extractErrorName(message: String): String? {
+        val regex = Regex("([a-zA-Z0-9._]+(?:Exception|Error))")
+        return regex.find(message)?.groupValues?.get(1)
+    }
+
     fun getFallbackLabel(pkg: String): String? = null
 
     fun getSmartLogExplanation(pkgName: String?, tag: String, message: String, level: String): String {
-        val processDesc = pkgName?.let { processDescriptions[it] } ?: "Данных нет"
-        
-        val sb = StringBuilder("<html><body style='width: 350px; padding: 2px;'>")
-        sb.append("<div style='font-size: 14px;'><b>Отправитель:</b> ${pkgName ?: "Неизвестно"}</div>")
-        sb.append("<div style='margin-top: 4px;'>$processDesc</div>")
+        if (pkgName != null && !processDescriptions.containsKey(pkgName)) {
+            writeToDescriptions("[PROCESSES]", pkgName, "!")
+            processDescriptions[pkgName] = "!"
+        }
+
+        val rawProcessDesc = pkgName?.let { processDescriptions[it] }
+        val processDesc = if (rawProcessDesc == null || rawProcessDesc == "!") "Данных нет" else rawProcessDesc
         
         val tagDesc = tagDescriptions[tag]
-        val foundError = errorDescriptions.entries.find { message.contains(it.key, ignoreCase = true) }
+        val foundErrorEntry = errorDescriptions.entries.find { message.contains(it.key, ignoreCase = true) }
+        
+        val sb = StringBuilder("<html><body style='width: 450px; padding: 10px;'>")
+        sb.append("<div style='font-size: 16px;'><b>Управляющий процесс:</b> ${pkgName ?: "Неизвестно"}</div>")
+        sb.append("<div style='font-size: 15px; margin-top: 5px;'>$processDesc</div>")
         
         if (level == "E" || tagDesc != null) {
-            sb.append("<hr style='border: none; border-top: 1px solid #777; margin: 8px 0;'>")
+            sb.append("<hr style='margin: 12px 0;'>")
             
             if (tagDesc != null) {
-                sb.append("<div>$tagDesc</div>")
+                val displayTagDesc = if (tagDesc == "!") "Данных нет" else tagDesc
+                sb.append("<div style='font-size: 15px;'>$displayTagDesc</div>")
             }
             
             if (level == "E") {
-                if (tagDesc != null) sb.append("<div style='margin-top: 8px;'></div>")
+                if (tagDesc != null) sb.append("<div style='margin-top: 10px;'></div>")
                 
-                if (foundError != null) {
-                    sb.append("<div><b>Ошибка:</b> ${foundError.key}</div>")
-                    sb.append("<div style='margin-top: 4px;'>${foundError.value}</div>")
-                } else {
-                    sb.append("<div><b>Ошибка:</b> Данных нет.</div>")
-                    sb.append("<div style='margin-top: 4px;'>Для описания изучите <a href='show_stacktrace' style='color: #589df6;'>StackTrace</a>.</div>")
+                val extracted = extractErrorName(message)
+                if (extracted != null && !errorDescriptions.containsKey(extracted)) {
+                    writeToDescriptions("[ERRORS]", extracted, "!")
+                    errorDescriptions[extracted] = "!"
                 }
+
+                val errorKey = foundErrorEntry?.key ?: extracted
+                val errorVal = foundErrorEntry?.value ?: "!"
+                val displayErrorVal = if (errorVal == "!") "Описание отсутствует." else errorVal
+                
+                if (errorKey != null) {
+                    sb.append("<div style='font-size: 16px;'><b>Ошибка:</b> $errorKey</div>")
+                    sb.append("<div style='font-size: 15px; margin-top: 5px;'>$displayErrorVal</div>")
+                }
+                sb.append("<div style='font-size: 14px; margin-top: 8px;'>Изучите <a href='show_stacktrace' style='color: #589df6;'>StackTrace</a> для деталей.</div>")
             }
         }
         

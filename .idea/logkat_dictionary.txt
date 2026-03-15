@@ -1,5 +1,4 @@
-[MY_PROJECT]
-# Сюда плагин запишет твое приложение
+# Своё приложение не записывается
 
 [GOOGLE]
 com.google.android.apps.restore=!
@@ -19,7 +18,6 @@ com.google.android.packageinstaller=Установщик пакетов
 com.google.android.syncadapters.contacts=!
 com.google.android.contactkeys=!
 com.google.android.webview=!
-com.google.android.apps.maps=Карты
 com.google.android.captiveportallogin=!
 com.google.android.apps.nbu.files=!
 com.google.android.apps.wellbeing=Цифровое благополучие
@@ -29,10 +27,32 @@ com.google.android.gm=!
 com.google.android.marvin.talkback=!
 com.google.android.providers.media.module=Инструмент выбора медиа
 com.google.android.apps.googleassistant=!
-com.google.android.googlequicksearchbox=!
 com.google.android.ext.services=Android Services Library
 com.google.android.gms=Сервисы Google Play
 com.android.vending=Google Play Store
+com.google.android.googlequicksearchbox=Google Поиск
+com.google.android.apps.maps=Google Карты
+com.google.android.youtube=YouTube
+
+[SYSTEM_CORE]
+# СИСТЕМНЫЕ ПРОЦЕССЫ: ИМЕНА
+system_server=Система Android
+surfaceflinger=Graphics (SurfaceFlinger)
+init=Core (Init)
+zygote=App Launcher (Zygote)
+audioserver=Audio Service
+mediaserver=Media Server
+cameraserver=Camera Server
+logd=Log Service
+servicemanager=Binder Manager
+netd=Network (Netd)
+vold=Storage Manager
+installd=Install Manager
+hwservicemanager=HAL Manager
+wpa_supplicant=Wi-Fi Service
+keystore=Keystore
+gatekeeperd=Security Service
+statsd=Stats Collector
 
 [SYSTEM]
 com.android.wallpaperpicker=!
@@ -42,7 +62,6 @@ com.fatsecret.android=fatsecret
 com.android.emergency=!
 com.transsion.systemupdate=!
 com.avito.android=Авито
-com.android.settings=!
 com.android.bookmarkprovider=Проводник закладок
 com.android.storagemanager=!
 com.android.wallpaper.livepicker=!
@@ -55,7 +74,6 @@ ru.yandex.androidkeyboard=Яндекс.Клавиатура
 ru.ozon.app.android=OZON
 com.bitrix24.android=!
 com.android.printspooler=Спулер печати
-com.android.providers.settings=!
 com.android.settings.intelligence=!
 com.android.stk=!
 com.android.egg=Android S Easter Egg
@@ -65,18 +83,13 @@ com.android.providers.downloads.ui=!
 com.android.providers.downloads=!
 com.android.providers.calendar=Память календаря
 com.android.providers.telephony=!
-system_server=Система Android
-surfaceflinger=Графика (SurfaceFlinger)
-init=Ядро (Init)
-zygote=Запуск приложений (Zygote)
-com.android.systemui=Интерфейс системы
-com.android.phone=Телефон / Радио
-audioserver=Аудио-служба
-mediaserver=Медиа-сервер
-cameraserver=Сервер камеры
-logd=Служба логов
-netd=Сеть (Netd)
-installd=Менеджер установки
+# СИСТЕМНЫЕ ПАКЕТЫ: ИМЕНА
+com.android.systemui=System UI
+com.android.phone=Phone / Radio
+com.android.settings=Settings
+com.android.launcher3=Launcher
+com.android.providers.settings=Settings Storage
+com.android.vcalendar=Calendar (System)
 
 [EXTERNAL]
 com.transsion.kolun.assistant=!
@@ -170,7 +183,6 @@ com.transsion.iotservice=WelinkService
 com.westalgo.factorycamera=!
 com.hikvision.convergence=!
 com.pushok.pushok_iot=!
-com.whatsapp=!
 com.mediatek.ygps=YGPS
 com.transsion.agingfunction=!
 com.ogonconnect.app=!
@@ -184,6 +196,8 @@ com.transsion.bluetooth=Airlink
 com.transsion.plat.appupdate=Обновление приложений
 com.transsion.statisticalsales=!
 org.videolan.vlc=VLC Player
+com.whatsapp=WhatsApp
+com.instagram.android=Instagram
+com.facebook.katana=Facebook
 
 [UNSORTED]
-# Неопознанные процессы
