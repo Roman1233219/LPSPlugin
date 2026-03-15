@@ -1,0 +1,41 @@
+
+/**
+ * Logkat Process Logger - Статическая инструментация.
+ * Эта версия использует классы, уже скомпилированные в плагине.
+ */
+
+def setupInstrumentation = {
+    if (!project.extensions.findByName('android')) return
+
+    // 1. Подключаем исходники трейсера (LogkatTracer.java)
+    def scriptFile = file(buildscript.sourceFile)
+    def scriptDir = scriptFile.parentFile
+    project.android.sourceSets.main.java.srcDirs += scriptDir
+
+    // 2. Регистрация трансформатора
+    if (project.extensions.findByName('androidComponents')) {
+        project.androidComponents.onVariants(project.androidComponents.selector().all()) { variant ->
+            
+            try {
+                // Пытаемся загрузить класс из плагина
+                def factoryClass = Class.forName("com.example.logkatplugin.LogkatAsmFactory")
+                
+                // Получаем Enum-типы из загрузчика AGP основного проекта
+                def projectClassLoader = variant.instrumentation.class.classLoader
+                def scopeClass = projectClassLoader.loadClass('com.android.build.api.instrumentation.InstrumentationScope')
+                def modeClass = projectClassLoader.loadClass('com.android.build.api.instrumentation.FramesComputationMode')
+
+                variant.instrumentation.transformClassesWith(factoryClass, scopeClass.ALL) {}
+                variant.instrumentation.setAsmFramesComputationMode(modeClass.COPY_FRAMES)
+                
+                project.logger.lifecycle("Logkat: Static instrumentation injected for variant \${variant.name}")
+            } catch (ClassNotFoundException e) {
+                project.logger.error("Logkat: Plugin classes not found in classpath. Make sure the plugin is applied.")
+            } catch (Exception e) {
+                project.logger.error("Logkat: Failed to inject: " + e.toString())
+            }
+        }
+    }
+}
+
+setupInstrumentation()

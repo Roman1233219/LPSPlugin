@@ -268,6 +268,23 @@ DisplayManagerService=Экран: Система меняет частоту о�
 ActivityManager=Управление активностями и процессами приложений.
 WindowManager=Управление окнами и их расположением на экране.
 InputDispatcher=Обработка касаний и нажатий клавиш.
+BLASTBufferQueue=Управление очередью буферов для отрисовки интерфейса.
+BufferQueueProducer=Производитель графических буферов.
+BufferQueueConsumer=Потребитель графических буферов.
+libPerfCtl=Библиотека управления производительностью чипсета.
+libPowerHal=Аппаратный уровень управления энергопотреблением.
+PowerHalWrapper=Обёртка для вызова функций энергопотребления.
+JavaBinder=Система межпроцессного взаимодействия.
+BpBinder=Сторона-клиент Binder-соединения.
+ActivityManager=Управление жизненным циклом активностей.
+OpenGLRenderer=Рендеринг графики через OpenGL.
+EglManager=Управление контекстом EGL для OpenGL.
+message_sending=Компонент отправки сообщений приложения Pachca.
+SenderService=Сервис фоновой отправки сообщений.
+SessionLifecycleClient=Клиент отслеживания сессии.
+SessionLifecycleService=Сервис отслеживания сессии.
+AppUpdateService=Сервис проверки обновлений Google Play.
+PlayCore=Библиотека Google
 
 [ERRORS]
 NullPointerException=Попытка обращения к объекту, который не был инициализирован (null).

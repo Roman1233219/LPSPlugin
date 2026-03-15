@@ -9,6 +9,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
@@ -18,6 +19,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.JBColor
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.awt.RelativePoint
@@ -30,14 +33,10 @@ import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
-import java.io.FileOutputStream
-import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
-import javax.swing.event.DocumentEvent
-import javax.swing.event.DocumentListener
 import javax.swing.event.HyperlinkEvent
 import javax.swing.event.HyperlinkListener
 import javax.swing.table.DefaultTableCellRenderer
@@ -97,6 +96,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private val openDescriptionsButton = createToolbarButton(AllIcons.Actions.Help, "База знаний")
         private val resetToDefaultButton = createToolbarButton(AllIcons.Actions.Rollback, "Сброс")
         private val bulkUpdateLabelsButton = createToolbarButton(AllIcons.Actions.Refresh, "Синхронизация")
+        
+        private val enableTraceButton = createToolbarButton(AllIcons.Actions.Execute, "Включить трассировку")
+        private val disableTraceButton = createToolbarButton(AllIcons.Actions.Suspend, "Выключить трассировку")
 
         private val clearButton = createToolbarButton(AllIcons.Actions.GC, "Очистить")
         private val saveButton = createToolbarButton(AllIcons.Actions.MenuSaveall, "Сохранить")
@@ -113,10 +115,12 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             loadInitialData()
             setupTableMouseListener()
             setupUI()
-            ToolTipManager.sharedInstance().initialDelay = 100 
-            allLogsButton.isSelected = true; updateButtonBorders()
+            updateTraceButtonsState()
             
             bulkUpdateLabelsButton.addActionListener { runDeepSync() }
+            enableTraceButton.addActionListener { runTracePreparation() }
+            disableTraceButton.addActionListener { runTraceRemoval() }
+            
             openDictionaryButton.addActionListener { openFileInEditor(LogExplanationProvider.DICTIONARY_FILENAME) }
             openDescriptionsButton.addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
             clearButton.addActionListener { logTableModel.rowCount = 0; synchronized(allLogs) { allLogs.clear() } }
@@ -132,6 +136,26 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             timer.start(); refreshDevices()
         }
 
+        private fun updateTraceButtonsState() {
+            val enabled = isTraceInjected()
+            enableTraceButton.isEnabled = !enabled
+            disableTraceButton.isEnabled = enabled
+        }
+
+        private fun findTargetGradleFile(): File? {
+            val paths = listOf("app/build.gradle", "build.gradle", "app/build.gradle.kts", "build.gradle.kts")
+            for (p in paths) {
+                val f = File(project.basePath, p)
+                if (f.exists()) return f
+            }
+            return null
+        }
+
+        private fun isTraceInjected(): Boolean {
+            val target = findTargetGradleFile()
+            return target?.exists() == true && target.readText().contains("LogkatInstrumentation.gradle")
+        }
+
         private fun setupTableMouseListener() {
             val mouseListener = object : MouseAdapter() {
                 override fun mouseMoved(e: MouseEvent) = checkAndHideBalloon(e)
@@ -140,6 +164,12 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     if (row == -1) return
                     val messageValue = logTable.getValueAt(row, 5)?.toString() ?: ""
                     if (messageValue == stalledMsg) return
+
+                    // Навигация по двойному клику
+                    if (e.clickCount == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                        navigateToCode(messageValue)
+                        return
+                    }
                     
                     if (SwingUtilities.isRightMouseButton(e)) {
                         logTable.setRowSelectionInterval(row, row)
@@ -175,6 +205,38 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             logTable.addMouseMotionListener(mouseListener)
         }
 
+        private fun navigateToCode(message: String) {
+            // 1. Поиск формата нашей трассировки или стандартных стектрейсов: (FileName.kt:123)
+            val traceRegex = Regex("""([\w\d_-]+\.(?:kt|java)):(\d+)""")
+            traceRegex.find(message)?.let { match ->
+                val fileName = match.groupValues[1]
+                val lineNumber = (match.groupValues[2].toIntOrNull() ?: 1) - 1
+                if (doNavigate(fileName, lineNumber)) return
+            }
+
+            // 2. Поиск по упоминанию компонентов Android (MainActivity, MyFragment и т.д.)
+            // Обрабатывает формат ActivityManager (act:com.package.MyActivity) и другие упоминания.
+            val componentRegex = Regex("""(?:act:[\w\.]+\.|[\s\.])(\w+(?:Activity|Fragment|Service|Receiver|Provider))""")
+            componentRegex.find(message)?.let { match ->
+                val className = match.groupValues[1]
+                if (doNavigate("$className.kt", 0)) return
+                if (doNavigate("$className.java", 0)) return
+            }
+        }
+
+        private fun doNavigate(fileName: String, line: Int): Boolean {
+            val files = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project))
+            val psiFile = files.firstOrNull() ?: return false
+            
+            ApplicationManager.getApplication().invokeLater {
+                val descriptor = OpenFileDescriptor(project, psiFile.virtualFile, line, 0)
+                if (descriptor.canNavigate()) {
+                    descriptor.navigate(true)
+                }
+            }
+            return true
+        }
+
         private fun findPackageByPid(pid: String): String? {
             val root = treeModel.root as? DefaultMutableTreeNode ?: return null
             val e = root.breadthFirstEnumeration()
@@ -191,40 +253,104 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         override fun dispose() { isDisposed = true; timer.stop(); currentResolutionId.incrementAndGet(); hideActiveBalloon() }
 
         private fun ensureScriptsExist(): File? {
-            val baseDir = File(project.basePath, "on-device-server/src")
+            val targetFile = findTargetGradleFile() ?: return null
+            val baseDir = File(targetFile.parentFile, "on-device-server/src")
             if (!baseDir.exists()) baseDir.mkdirs()
 
             val psFile = File(baseDir, "run_resolver.ps1")
             val javaFile = File(baseDir, "LabelResolver.java")
+            val tracerFile = File(baseDir, "LogkatTracer.java")
+            val instrumentationFile = File(baseDir, "LogkatInstrumentation.gradle")
 
             fun extractResource(resName: String, target: File) {
-                if (!target.exists()) {
-                    val stream = javaClass.getResourceAsStream("/scripts/$resName")
-                    if (stream != null) {
-                        target.writeBytes(stream.readBytes())
-                    }
+                val stream = javaClass.getResourceAsStream("/scripts/$resName")
+                if (stream != null) {
+                    target.writeBytes(stream.readBytes())
                 }
             }
 
             try {
                 extractResource("run_resolver.ps1", psFile)
                 extractResource("LabelResolver.java", javaFile)
-                LocalFileSystem.getInstance().refreshIoFiles(listOf(psFile, javaFile))
+                extractResource("LogkatTracer.java", tracerFile)
+                extractResource("LogkatInstrumentation.gradle", instrumentationFile)
+                LocalFileSystem.getInstance().refreshIoFiles(listOf(psFile, javaFile, tracerFile, instrumentationFile))
                 return psFile
             } catch (e: Exception) {
                 return null
             }
         }
 
+        private fun injectGradleApply(project: Project): Boolean {
+            val target = findTargetGradleFile() ?: return false
+            try {
+                val content = target.readText()
+                val applyLine = if (target.name.endsWith(".kts")) 
+                    "apply(from = \"on-device-server/src/LogkatInstrumentation.gradle\")" 
+                else 
+                    "apply from: 'on-device-server/src/LogkatInstrumentation.gradle'"
+                
+                if (!content.contains("LogkatInstrumentation.gradle")) {
+                    target.writeText(content + "\n\n// Авто-подключение трассировки байт-кода\n" + applyLine)
+                    LocalFileSystem.getInstance().refreshIoFiles(listOf(target))
+                }
+                return true
+            } catch (e: Exception) {
+                return false
+            }
+        }
+
+        private fun removeGradleApply(project: Project): Boolean {
+            val target = findTargetGradleFile() ?: return false
+            try {
+                val lines = target.readLines().filter { 
+                    !it.contains("LogkatInstrumentation.gradle") && !it.contains("Авто-подключение трассировки")
+                }
+                target.writeText(lines.joinToString("\n").trimEnd())
+                LocalFileSystem.getInstance().refreshIoFiles(listOf(target))
+                return true
+            } catch (e: Exception) {
+                return false
+            }
+        }
+
+        private fun runTracePreparation() {
+            if (Messages.showYesNoDialog(project, "Включить трассировку проекта?\nЭто активирует ASM-инъекцию при следующей сборке.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
+                val scriptFile = ensureScriptsExist()
+                if (scriptFile != null) {
+                    if (injectGradleApply(project)) {
+                        updateTraceButtonsState()
+                        Messages.showInfoMessage(project, "Трассировка включена!\nВыполните Rebuild Project для активации.", "Трассировка")
+                    } else {
+                        Messages.showErrorDialog(project, "Не удалось обновить build.gradle. Проверьте права доступа к файлу.", "Ошибка")
+                    }
+                } else {
+                    Messages.showErrorDialog(project, "Не удалось найти build.gradle или создать файлы в on-device-server/src.", "Ошибка")
+                }
+            }
+        }
+
+        private fun runTraceRemoval() {
+            if (Messages.showYesNoDialog(project, "Выключить трассировку проекта?\nНастройки будут удалены из build.gradle.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
+                if (removeGradleApply(project)) {
+                    updateTraceButtonsState()
+                    Messages.showInfoMessage(project, "Трассировка выключена.\nСделайте Rebuild Project, чтобы очистить APK.", "Трассировка")
+                } else {
+                    Messages.showErrorDialog(project, "Не удалось очистить build.gradle.", "Ошибка")
+                }
+            }
+        }
+
         private fun runDeepSync() {
             if (Messages.showYesNoDialog(project, "Синхронизировать имена и иконки? Старые иконки будут удалены.", "Синхронизация", Messages.getQuestionIcon()) == Messages.YES) {
+                val targetFile = findTargetGradleFile() ?: return
                 val scriptFile = ensureScriptsExist()
                 if (scriptFile == null || !scriptFile.exists()) {
                     Messages.showErrorDialog(project, "Не удалось подготовить скрипты синхронизации!", "Ошибка")
                     return
                 }
 
-                val iconsDir = File(project.basePath, "on-device-server/src/icons")
+                val iconsDir = File(targetFile.parentFile, "on-device-server/src/icons")
                 if (iconsDir.exists()) {
                     iconsDir.deleteRecursively()
                 }
@@ -233,7 +359,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 ApplicationManager.getApplication().executeOnPooledThread {
                     try {
                         val process = ProcessBuilder("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", scriptFile.absolutePath)
-                            .directory(File(project.basePath ?: ""))
+                            .directory(targetFile.parentFile)
                             .start()
 
                         process.inputStream.bufferedReader().use { it.forEachLine { line ->
@@ -246,8 +372,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                         }}
                         process.waitFor()
                         
-                        val freshIconsDir = File(project.basePath, "on-device-server/src/icons")
-                        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(freshIconsDir)
+                        val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(iconsDir)
                         vf?.refresh(false, true)
 
                         ApplicationManager.getApplication().invokeLater { if (!isDisposed) { loadInitialData(); reloadTreeSafely(); bulkUpdateLabelsButton.isEnabled = true; setStatusText("Готово", false) } }
@@ -308,7 +433,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             })
 
             val leftToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 5, 2))
-            leftToolbar.add(deviceComboBox); leftToolbar.add(resStatusPanel); leftToolbar.add(openDictionaryButton); leftToolbar.add(openDescriptionsButton); leftToolbar.add(resetToDefaultButton); leftToolbar.add(bulkUpdateLabelsButton)
+            leftToolbar.add(deviceComboBox); leftToolbar.add(resStatusPanel); leftToolbar.add(openDictionaryButton); leftToolbar.add(openDescriptionsButton); leftToolbar.add(resetToDefaultButton); leftToolbar.add(bulkUpdateLabelsButton); 
+            leftToolbar.add(enableTraceButton); leftToolbar.add(disableTraceButton)
+
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             listOf(createFilterToggleButton(Color(180, 0, 0), "E", "Ошибки"), createFilterToggleButton(Color(250, 200, 0), "W", "Варнинги"), createFilterToggleButton(Color(100, 255, 100), "I", "Инфо"), createFilterToggleButton(Color(100, 150, 255), "S", "Система")).forEach { colorButtons.add(it); filterGroupPanel.add(it) }
             val rightToolbar = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 2))

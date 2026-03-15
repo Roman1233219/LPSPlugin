@@ -2,7 +2,6 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("java")
-    // Плагин версии 2.x для поддержки новых версий IDE (2024-2025)
     id("org.jetbrains.intellij.platform") version "2.2.1"
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
 }
@@ -18,7 +17,6 @@ repositories {
     }
 }
 
-// Устанавливаем единую версию Java для всего проекта
 kotlin {
     jvmToolchain(17)
 }
@@ -29,15 +27,18 @@ java {
 }
 
 dependencies {
-    intellijPlatform {
-        // Подключение локальной IDE. Этого достаточно, чтобы runIde знал, что запускать.
-        local(file("D:/Android Studio"))
+    // Библиотеки для работы с байт-кодом (ASM)
+    implementation("org.ow2.asm:asm:9.6")
+    implementation("org.ow2.asm:asm-commons:9.6")
 
-        // Явно подключаем плагины, которые содержат ddmlib и Java API
+    // Android Gradle Plugin API для инструментации (нужно для компиляции LogkatAsmFactory)
+    compileOnly("com.android.tools.build:gradle-api:8.1.0")
+    compileOnly("com.android.tools.build:gradle:8.1.0")
+
+    intellijPlatform {
+        local(file("D:/Android Studio"))
         bundledPlugin("org.jetbrains.android")
         bundledPlugin("com.intellij.java")
-
-        // Инструментарий для сборки плагина
         instrumentationTools()
     }
 }
@@ -56,7 +57,6 @@ intellijPlatform {
 
 tasks {
     runIde {
-        // Передача системных свойств для корректного запуска в режиме Android Studio
         systemProperty("idea.platform.prefix", "AndroidStudio")
         maxHeapSize = "2g"
     }
@@ -68,7 +68,6 @@ tasks {
         }
     }
 
-    // ОТКЛЮЧАЕМ создание индекса поиска, чтобы сборка шла быстрее и без ошибок GUI
     buildSearchableOptions {
         enabled = false
     }
