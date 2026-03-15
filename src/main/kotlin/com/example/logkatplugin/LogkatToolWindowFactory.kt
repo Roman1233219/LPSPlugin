@@ -103,9 +103,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
         private val allLogsButton = createToggleButton(AllIcons.General.Filter, "Все логи", true)
 
-        enum class ResolutionMode(val label: String) { NONE("Нет"), TEST_ONLY("Мои"), INSTALLED_ONLY("Уст."), ALL("Все") }
-        private val resolutionCombo = ComboBox(ResolutionMode.values()).apply { preferredSize = Dimension(100, 28); selectedIndex = 0 }
-        
         private var filterLevel: String? = null
         private val colorButtons = mutableListOf<JToggleButton>()
         private val currentResolutionId = AtomicInteger(0)
@@ -315,7 +312,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             listOf(createFilterToggleButton(Color(180, 0, 0), "E", "Ошибки"), createFilterToggleButton(Color(250, 200, 0), "W", "Варнинги"), createFilterToggleButton(Color(100, 255, 100), "I", "Инфо"), createFilterToggleButton(Color(100, 150, 255), "S", "Система")).forEach { colorButtons.add(it); filterGroupPanel.add(it) }
             val rightToolbar = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 2))
-            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(resolutionCombo); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton)
+            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton)
             val topPanel = JPanel(BorderLayout()); topPanel.add(leftToolbar, BorderLayout.WEST); topPanel.add(rightToolbar, BorderLayout.EAST); panel.add(topPanel, BorderLayout.NORTH)
             val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, JBScrollPane(processTree), JBScrollPane(logTable)); splitPane.dividerLocation = 280; panel.add(splitPane, BorderLayout.CENTER)
             processTree.addTreeSelectionListener { val node = processTree.lastSelectedPathComponent as? DefaultMutableTreeNode; val selectedValue = node?.userObject as? String; if (selectedValue != null && selectedValue != lastSelectedPackage) { val parent = node.parent as? DefaultMutableTreeNode; val pkgName = if (parent != null && parent != rootNode && (parent.parent as? DefaultMutableTreeNode) == rootNode) parent.userObject as? String else selectedValue; if (pkgName != lastSelectedPackage) { lastSelectedPackage = pkgName; rebuildLogTable() } } }
