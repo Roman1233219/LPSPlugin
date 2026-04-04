@@ -5,7 +5,6 @@ import org.objectweb.asm.*
 
 /**
  * Основная фабрика для внедрения трассировки Logkat.
- * Находится в коде плагина, что решает проблемы с ClassLoader в Gradle.
  */
 abstract class LogkatAsmFactory : AsmClassVisitorFactory<InstrumentationParameters.None> {
     override fun createClassVisitor(classContext: ClassContext, nextClassVisitor: ClassVisitor): ClassVisitor {
@@ -48,27 +47,19 @@ class LogkatMethodTransformer(
     override fun visitLineNumber(line: Int, start: Label?) {
         super.visitLineNumber(line, start)
         currentLine = line
-        insertTrace("STEP")
-    }
-
-    override fun visitFieldInsn(opcode: Int, owner: String?, name: String?, descriptor: String?) {
-        if (opcode == Opcodes.PUTFIELD || opcode == Opcodes.PUTSTATIC) {
-            insertTrace("VAR_SET: $name")
-        }
-        super.visitFieldInsn(opcode, owner, name, descriptor)
     }
 
     override fun visitMethodInsn(opcode: Int, owner: String?, name: String?, descriptor: String?, isInterface: Boolean) {
-        if (name != "<init>" && owner?.contains("LogkatTracer") == false) {
+        // Вставляем трассировку ПЕРЕД вызовами других методов
+        if (name != "<init>" && owner?.contains("LogkatTracer") == false && currentLine != -1) {
             insertTrace("CALL: $name")
         }
         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface)
     }
 
     private fun insertTrace(info: String) {
-        if (currentLine == -1) return
         super.visitLdcInsn(sourceFile)
-        super.visitLdcInsn(currentLine)
+        super.visitIntInsn(Opcodes.SIPUSH, currentLine)
         super.visitLdcInsn(info)
         super.visitMethodInsn(
             Opcodes.INVOKESTATIC,

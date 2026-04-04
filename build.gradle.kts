@@ -4,6 +4,7 @@ plugins {
     id("java")
     id("org.jetbrains.intellij.platform") version "2.2.1"
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
+    id("maven-publish")
 }
 
 group = "com.example.logkatplugin"
@@ -24,6 +25,14 @@ kotlin {
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
 }
 
 dependencies {
