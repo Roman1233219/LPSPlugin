@@ -189,6 +189,17 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 }
             }
 
+            allLogsButton.addActionListener {
+                if (allLogsButton.isSelected) {
+                    allTraceButton.isSelected = false
+                    appTraceButton.isSelected = false
+                    filterLevel = null
+                    colorButtons.forEach { it.isSelected = false }
+                    updateButtonBorders()
+                    rebuildLogTable()
+                }
+            }
+
             resetToDefaultButton.addActionListener {
                 if (Messages.showYesNoDialog(project, "Восстановить настройки?", "Сброс", Messages.getWarningIcon()) == Messages.YES) {
                     LogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely()
@@ -206,6 +217,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     classComboBox.isVisible = false
                     allTraceButton.isSelected = false
                     appTraceButton.isSelected = false
+                    updateTraceButtonsState()
                     updateButtonBorders()
                 }
             }
@@ -268,10 +280,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     ApplicationManager.getApplication().invokeLater {
                         if (isDisposed) return@invokeLater
                         
-                        // 1. Очищаем все старые логи при любом запуске
+                        // Очищаем логи только при новом запуске
                         clearLogs()
                         
-                        // 2. Получаем реальный applicationId запущенного модуля через Android плагин ИДЕ
                         val module = (env.runProfile as? com.intellij.execution.configurations.ModuleRunProfile)?.modules?.firstOrNull()
                         val detectedPkg = module?.let { m ->
                             try {
@@ -285,7 +296,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
                         if (detectedPkg != null) {
                             projectPkg = detectedPkg
-                            // Сразу обновляем дерево процессов, чтобы папка "Мой проект" обновилась
                             refreshProcesses()
                             if (lastSelectedPackage == projectPkg) {
                                 rebuildLogTable()
@@ -459,10 +469,18 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             
             allLogsButton.border = if (allLogsButton.isSelected) activeBorder else inactiveBorder
             autoscrollButton.border = if (autoscrollButton.isSelected) redActiveBorder else noneBorder
-            allTraceButton.border = if (allTraceButton.isSelected) activeBorder else noneBorder
-            appTraceButton.border = if (appTraceButton.isSelected) activeBorder else noneBorder
+            allTraceButton.border = if (allTraceButton.isSelected) activeBorder else inactiveBorder
+            appTraceButton.border = if (appTraceButton.isSelected) activeBorder else inactiveBorder
             
             colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
+
+            // Блокировка/разблокировка UI трассировки
+            val traceEnabled = isTraceInjected()
+            traceLevelComboBox.isEnabled = traceEnabled
+            classComboBox.isEnabled = traceEnabled
+            allTraceButton.isEnabled = traceEnabled
+            appTraceButton.isEnabled = traceEnabled
+            traceLevelHintLabel.isEnabled = traceEnabled
         }
 
         private fun showHint(text: String, e: MouseEvent, component: Component, isSticky: Boolean, originalMessage: String = "") { hideActiveBalloon(); isStickyBalloon = isSticky; val balloon = JBPopupFactory.getInstance().createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), object : HyperlinkListener { override fun hyperlinkUpdate(event: HyperlinkEvent) { if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && event.description == "show_stacktrace") Messages.showInfoMessage(LogExplanationProvider.getDetailedStackTraceExplanation(originalMessage), "Информация") } }).setFadeoutTime(0).setHideOnClickOutside(true).createBalloon(); balloon.show(RelativePoint(component, e.point), Balloon.Position.above); activeBalloon = balloon }

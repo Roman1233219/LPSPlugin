@@ -21,6 +21,9 @@ fun LogkatToolWindowFactory.LogkatToolWindow.updateTraceButtonsState() {
     val enabled = isTraceInjected()
     enableTraceButton.isEnabled = !enabled
     disableTraceButton.isEnabled = enabled
+    
+    // Также обновляем состояние всех элементов управления трассировкой
+    updateButtonBorders()
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.findTargetGradleFile(): File? {
@@ -151,7 +154,9 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runTracePreparation() {
         val scriptFile = ensureScriptsExist()
         if (scriptFile != null) {
             if (injectGradleApply(project)) {
-                updateTraceButtonsState()
+                ApplicationManager.getApplication().invokeLater {
+                    updateTraceButtonsState()
+                }
                 Messages.showInfoMessage(project, "Трассировка включена!\nВыполните Rebuild Project для активации.", "Трассировка")
             } else {
                 Messages.showErrorDialog(project, "Не удалось обновить build.gradle.", "Ошибка")
@@ -170,10 +175,9 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runTraceRemoval() {
                 LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
             }
             
-            // Сбрасываем UI трассировки
+            // Сбрасываем UI трассировки (включает вызов updateTraceButtonsState)
             resetTraceUI()
             
-            updateTraceButtonsState()
             Messages.showInfoMessage(project, "Трассировка выключена.", "Трассировка")
         } else {
             Messages.showErrorDialog(project, "Не удалось очистить build.gradle.", "Ошибка")

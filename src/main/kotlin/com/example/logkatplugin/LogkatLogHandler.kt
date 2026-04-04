@@ -82,20 +82,34 @@ fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<S
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.getFileLocationType(fileName: String): String {
-    // Проверяем кэш, чтобы не искать в индексе IDE на каждую строку (это медленно)
     return fileLocationCache.getOrPut(fileName) {
-        // Ищем файл только в области проекта
-        val projectFiles = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project))
-        projectFiles.isNotEmpty() // true если файл наш, false если библиотечный
+        var found = false
+        ApplicationManager.getApplication().runReadAction {
+            val projectFiles = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project))
+            found = projectFiles.isNotEmpty()
+        }
+        found
     }.let { if (it) "APP" else "LIB" }
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): Boolean {
     val query = searchField.text.trim()
     if (query.isNotEmpty() && !line.contains(query, ignoreCase = true)) return false
-    if (allLogsButton.isSelected) return true
     
     val parsed = parseLogLine(line)
+    val tag = parsed[4]
+    val type = parsed[6]
+    
+    // Новые фильтры трассировки
+    if (allTraceButton.isSelected) {
+        return tag.equals("LOGKAT_TRACE", ignoreCase = true)
+    }
+    if (appTraceButton.isSelected) {
+        return tag.equals("LOGKAT_TRACE", ignoreCase = true) && type == "APP"
+    }
+
+    if (allLogsButton.isSelected) return true
+
     val level = parsed[3]
     val pid = parsed[1].toIntOrNull()
     
