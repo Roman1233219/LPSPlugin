@@ -2,6 +2,10 @@ package com.example.logkatplugin
 
 import com.android.ddmlib.AndroidDebugBridge
 import com.android.ddmlib.IDevice
+import com.intellij.execution.ExecutionListener
+import com.intellij.execution.ExecutionManager
+import com.intellij.execution.process.ProcessHandler
+import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -107,6 +111,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             setupTableMouseListener()
             setupUI()
             updateTraceButtonsState()
+            setupExecutionListener()
             
             bulkUpdateLabelsButton.addActionListener { runDeepSync() }
             enableTraceButton.addActionListener { runTracePreparation() }
@@ -114,9 +119,13 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             
             openDictionaryButton.addActionListener { openFileInEditor(LogExplanationProvider.DICTIONARY_FILENAME) }
             openDescriptionsButton.addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
-            clearButton.addActionListener { logTableModel.rowCount = 0; synchronized(allLogs) { allLogs.clear() } }
+            clearButton.addActionListener { clearLogs() }
             saveButton.addActionListener { saveLogsToFile() }
-            autoscrollButton.addActionListener { autoscroll = autoscrollButton.isSelected }
+            
+            autoscrollButton.addActionListener { 
+                autoscroll = autoscrollButton.isSelected
+                updateButtonBorders()
+            }
 
             resetToDefaultButton.addActionListener {
                 if (Messages.showYesNoDialog(project, "Восстановить настройки?", "Сброс", Messages.getWarningIcon()) == Messages.YES) {
@@ -125,6 +134,29 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             }
             timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshDevices(); refreshProcesses() } }
             timer.start(); refreshDevices()
+        }
+
+        private fun setupExecutionListener() {
+            project.messageBus.connect(this).subscribe(ExecutionManager.EXECUTION_TOPIC, object : ExecutionListener {
+                override fun processStarted(executorId: String, env: ExecutionEnvironment, handler: ProcessHandler) {
+                    ApplicationManager.getApplication().invokeLater {
+                        if (isDisposed) return@invokeLater
+                        clearLogs()
+                        val detectedPkg = LogExplanationProvider.getProjectPackageName(project)
+                        if (detectedPkg != null) {
+                            projectPkg = detectedPkg
+                            if (lastSelectedPackage == projectPkg) {
+                                rebuildLogTable()
+                            }
+                        }
+                    }
+                }
+            })
+        }
+
+        internal fun clearLogs() {
+            logTableModel.rowCount = 0
+            synchronized(allLogs) { allLogs.clear() }
         }
 
         private fun setupTableMouseListener() {
@@ -203,17 +235,29 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 override fun getTableCellRendererComponent(table: JTable?, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int): Component {
                     val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
                     val level = table?.getValueAt(row, 3) as? String ?: ""
+                    val tag = table?.getValueAt(row, 4) as? String ?: ""
+                    
                     if (table?.getValueAt(row, 5) == stalledMsg) { c.foreground = Color.GRAY; return c }
-                    when (level) {
-                        "E" -> { c.foreground = Color.WHITE; c.background = Color(180, 0, 0) }
-                        "W" -> { c.foreground = Color.BLACK; c.background = Color(250, 200, 0) }
-                        else -> {
-                            val pid = (table?.getValueAt(row, 1) as? String)?.toIntOrNull()
-                            val pkg = pid?.let { pidToPackage[it] }
-                            if (pkg != null && (pkg.contains("android") || pkg.contains("system"))) { c.foreground = Color(100, 150, 255); c.background = Color(40, 40, 60) }
-                            else { c.foreground = Color(100, 255, 100); c.background = Color(55, 55, 55) }
+                    
+                    if (tag.trim().equals("LOGKAT_TRACE", ignoreCase = true)) {
+                        c.background = Color(0, 191, 255) // DeepSkyBlue
+                        c.foreground = Color.BLACK
+                    } else {
+                        when (level) {
+                            "E" -> { c.foreground = Color.WHITE; c.background = Color(180, 0, 0) }
+                            "W" -> { c.foreground = Color.BLACK; c.background = Color(250, 200, 0) }
+                            else -> {
+                                val pid = (table?.getValueAt(row, 1) as? String)?.toIntOrNull()
+                                val pkg = pid?.let { pidToPackage[it] }
+                                if (pkg != null && (pkg.contains("android") || pkg.contains("system"))) { 
+                                    c.foreground = Color(100, 150, 255); c.background = Color(40, 40, 60) 
+                                } else { 
+                                    c.foreground = Color(100, 255, 100); c.background = Color(55, 55, 55) 
+                                }
+                            }
                         }
                     }
+                    
                     if (isSelected) c.background = c.background.darker()
                     return c
                 }
@@ -231,15 +275,31 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, JBScrollPane(processTree), JBScrollPane(logTable)); splitPane.dividerLocation = 280; panel.add(splitPane, BorderLayout.CENTER)
             processTree.addTreeSelectionListener { val node = processTree.lastSelectedPathComponent as? DefaultMutableTreeNode; val selectedValue = node?.userObject as? String; if (selectedValue != null && selectedValue != lastSelectedPackage) { val parent = node.parent as? DefaultMutableTreeNode; val pkgName = if (parent != null && parent != rootNode && (parent.parent as? DefaultMutableTreeNode) == rootNode) parent.userObject as? String else selectedValue; if (pkgName != lastSelectedPackage) { lastSelectedPackage = pkgName; rebuildLogTable() } } }
             deviceComboBox.addActionListener { val selected = deviceComboBox.selectedItem as? IDevice; if (selected != null && selected.serialNumber != currentDevice?.serialNumber) { currentDevice = selected; startLogcatCapture(selected) } }
+            updateButtonBorders()
         }
 
         internal fun reloadTreeSafely() { ApplicationManager.getApplication().invokeLater { if (!isDisposed) treeModel.reload() } }
-        internal fun loadInitialData() { LogExplanationProvider.loadAllDescriptions(project.basePath); packageToLabel.putAll(LogExplanationProvider.loadDictionary(project.basePath)); projectPkg = LogExplanationProvider.getProjectPackageName(project); iconCache.clear() }
+        internal fun loadInitialData() { 
+            LogExplanationProvider.loadAllDescriptions(project.basePath)
+            packageToLabel.putAll(LogExplanationProvider.loadDictionary(project.basePath))
+            projectPkg = null 
+            iconCache.clear() 
+        }
         private fun createToolbarButton(icon: Icon, tip: String) = JButton(icon).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createToggleButton(icon: Icon, tip: String, initial: Boolean) = JToggleButton(icon, initial).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createFilterToggleButton(color: Color, level: String, tip: String) = JToggleButton().apply {
             preferredSize = Dimension(28, 28); background = color; isOpaque = true; isContentAreaFilled = true; border = BorderFactory.createLineBorder(Color.GRAY, 1); toolTipText = tip; addActionListener { if (isSelected) { filterLevel = level; allLogsButton.isSelected = false; colorButtons.filter { it != this }.forEach { it.isSelected = false } } else if (filterLevel == level) filterLevel = null; updateButtonBorders(); rebuildLogTable() } }
-        private fun updateButtonBorders() { val activeBorder = BorderFactory.createLineBorder(JBColor.namedColor("Label.foreground", Color.BLACK), 3); allLogsButton.border = if (allLogsButton.isSelected) activeBorder else BorderFactory.createLineBorder(Color.GRAY, 1); colorButtons.forEach { it.border = if (it.isSelected) activeBorder else BorderFactory.createLineBorder(Color.GRAY, 1) } }
+        
+        private fun updateButtonBorders() { 
+            val activeBorder = BorderFactory.createLineBorder(JBColor.namedColor("Label.foreground", Color.BLACK), 3)
+            val inactiveBorder = BorderFactory.createLineBorder(Color.GRAY, 1)
+            
+            allLogsButton.border = if (allLogsButton.isSelected) activeBorder else inactiveBorder
+            autoscrollButton.border = if (autoscrollButton.isSelected) activeBorder else inactiveBorder
+            
+            colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
+        }
+
         private fun showHint(text: String, e: MouseEvent, component: Component, isSticky: Boolean, originalMessage: String = "") { hideActiveBalloon(); isStickyBalloon = isSticky; val balloon = JBPopupFactory.getInstance().createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), object : HyperlinkListener { override fun hyperlinkUpdate(event: HyperlinkEvent) { if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && event.description == "show_stacktrace") Messages.showInfoMessage(LogExplanationProvider.getDetailedStackTraceExplanation(originalMessage), "Информация") } }).setFadeoutTime(0).setHideOnClickOutside(true).createBalloon(); balloon.show(RelativePoint(component, e.point), Balloon.Position.above); activeBalloon = balloon }
         private fun checkAndHideBalloon(e: MouseEvent) { if (activeBalloon != null && !isStickyBalloon) hideActiveBalloon() }
         private fun hideActiveBalloon() { activeBalloon?.hide(); activeBalloon = null }

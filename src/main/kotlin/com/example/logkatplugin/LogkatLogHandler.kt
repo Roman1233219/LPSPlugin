@@ -47,24 +47,37 @@ fun LogkatToolWindowFactory.LogkatToolWindow.startLogcatCapture(device: IDevice)
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<String> {
+    // threadtime: 04-04 07:47:02.595 17888 17948 D TAG: Message
     val parts = line.trim().split(Regex("\\s+"), 6)
     if (parts.size < 6) return arrayOf("", "", "", "", "", line)
+    
+    val time = parts[1] // Берем только время (без даты 04-04)
+    val pid = parts[2]
+    val tid = parts[3]
+    val level = parts[4]
+    
+    // В шестой части лежит "TAG: Message"
     val rest = parts[5].split(":", limit = 2)
-    return arrayOf(parts[1], parts[2], parts[3], parts[4], rest.getOrNull(0) ?: "", rest.getOrNull(1)?.trim() ?: "")
+    val tag = rest.getOrNull(0)?.trim() ?: ""
+    val message = rest.getOrNull(1)?.trim() ?: ""
+    
+    return arrayOf(time, pid, tid, level, tag, message)
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): Boolean {
     val query = searchField.text.trim()
     if (query.isNotEmpty() && !line.contains(query, ignoreCase = true)) return false
     if (allLogsButton.isSelected) return true
-    val parts = parseLogLine(line)
-    val level = parts[3]
+    
+    val parsed = parseLogLine(line)
+    val level = parsed[3]
+    val pid = parsed[1].toIntOrNull()
+    
     return when (filterLevel) {
         "E" -> level == "E"
         "W" -> level == "W"
         "I" -> level == "I" || level == "V" || level == "D"
         "S" -> {
-            val pid = parts[1].toIntOrNull()
             val pkg = pid?.let { pidToPackage[it] }
             pkg != null && (pkg.contains("android") || pkg.contains("system"))
         }
@@ -73,8 +86,8 @@ fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): 
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.isLineRelatedToPackage(line: String, packageName: String): Boolean {
-    val parts = parseLogLine(line)
-    val pidFromLine = parts[1].toIntOrNull()
+    val parsed = parseLogLine(line)
+    val pidFromLine = parsed[1].toIntOrNull()
     if (pidFromLine != null && pidToPackage[pidFromLine] == packageName) return true
     return line.contains(packageName, ignoreCase = true) || (line.contains("ActivityManager") && line.contains(packageName))
 }
@@ -117,12 +130,14 @@ fun LogkatToolWindowFactory.LogkatToolWindow.saveLogsToFile() {
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.navigateToCode(message: String) {
-    val traceRegex = Regex("""([\w\d_-]+\.(?:kt|java)):(\d+)""")
+    // Регулярка теперь ищет формат (File.java:123) или (File.kt:123) внутри сообщения
+    val traceRegex = Regex("""\(([\w\d_-]+\.(?:kt|java)):(\d+)\)""")
     traceRegex.find(message)?.let { match ->
         val fileName = match.groupValues[1]
         val lineNumber = (match.groupValues[2].toIntOrNull() ?: 1) - 1
         if (doNavigate(fileName, lineNumber)) return
     }
+    
     val componentRegex = Regex("""(?:act:[\w\.]+\.|[\s\.])(\w+(?:Activity|Fragment|Service|Receiver|Provider))""")
     componentRegex.find(message)?.let { match ->
         val className = match.groupValues[1]
@@ -132,11 +147,15 @@ fun LogkatToolWindowFactory.LogkatToolWindow.navigateToCode(message: String) {
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.doNavigate(fileName: String, line: Int): Boolean {
-    val files = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project))
+    val scope = GlobalSearchScope.allScope(project)
+    val files = FilenameIndex.getFilesByName(project, fileName, scope)
     val psiFile = files.firstOrNull() ?: return false
+    
     ApplicationManager.getApplication().invokeLater {
         val descriptor = OpenFileDescriptor(project, psiFile.virtualFile, line, 0)
-        if (descriptor.canNavigate()) descriptor.navigate(true)
+        if (descriptor.canNavigate()) {
+            descriptor.navigate(true)
+        }
     }
     return true
 }
