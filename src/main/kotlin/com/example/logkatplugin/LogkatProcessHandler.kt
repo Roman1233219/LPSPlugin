@@ -163,6 +163,16 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runTracePreparation() {
 fun LogkatToolWindowFactory.LogkatToolWindow.runTraceRemoval() {
     if (Messages.showYesNoDialog(project, "Выключить трассировку проекта?\nНастройки будут удалены из build.gradle.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
         if (removeGradleApply(project)) {
+            // Очищаем файл настроек при выключении
+            val settingsFile = File(project.basePath, ".idea/logkat_trace_settings.txt")
+            if (settingsFile.exists()) {
+                settingsFile.delete()
+                LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
+            }
+            
+            // Сбрасываем UI трассировки
+            resetTraceUI()
+            
             updateTraceButtonsState()
             Messages.showInfoMessage(project, "Трассировка выключена.", "Трассировка")
         } else {
@@ -205,7 +215,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runDeepSync() {
                 val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(iconsDir)
                 vf?.refresh(false, true)
 
-                ApplicationManager.getApplication().invokeLater { if (!isDisposed) { loadInitialData(); reloadTreeSafely(); bulkUpdateLabelsButton.isEnabled = true; setStatusText("Готово", false) } }
+                ApplicationManager.getApplication().invokeLater { if (!isDisposed) { loadInitialData(); reloadTreeSafely() ; bulkUpdateLabelsButton.isEnabled = true; setStatusText("Готово", false) } }
             } catch (e: Exception) { 
                 ApplicationManager.getApplication().invokeLater { 
                     Messages.showErrorDialog(project, "Ошибка запуска: ${e.message}", "Ошибка")

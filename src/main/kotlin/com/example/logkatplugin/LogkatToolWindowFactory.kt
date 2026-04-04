@@ -25,6 +25,11 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.ui.ComboboxSpeedSearch
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.PsiClassOwner
+import com.intellij.psi.PsiManager
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
@@ -49,6 +54,16 @@ class LogkatToolWindowFactory : ToolWindowFactory {
     }
 
     class LogkatToolWindow(internal val project: Project) : Disposable {
+        enum class TraceLevel(val label: String, val description: String) {
+            MINIMAL("Минимальный", "Только public методы"),
+            BASIC("Базовый", "public + protected"),
+            STANDARD("Стандартный", "public + protected + package-private"),
+            ADVANCED("Расширенный", "всё + конструкторы + геттеры/сеттеры"),
+            FULL("Полный", "абсолютно всё (включая toString/hashCode)"),
+            SELECTIVE("Выборочный", "только @Trace");
+            override fun toString(): String = label
+        }
+
         internal val panel = JPanel(BorderLayout())
         internal val rootNode = DefaultMutableTreeNode("Processes")
         internal val treeModel = DefaultTreeModel(rootNode)
@@ -94,6 +109,20 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         internal val enableTraceButton = createToolbarButton(AllIcons.Actions.Execute, "Включить трассировку")
         internal val disableTraceButton = createToolbarButton(AllIcons.Actions.Suspend, "Выключить трассировку")
 
+        // Новые компоненты трассировки
+        internal val traceLevelComboBox = ComboBox(TraceLevel.values())
+        internal val traceLevelHintLabel = JLabel(TraceLevel.MINIMAL.description).apply {
+            font = font.deriveFont(Font.ITALIC, 11f)
+            foreground = JBColor.GRAY
+        }
+        internal val classComboBox = ComboBox<String>().apply {
+            isVisible = false
+            preferredSize = Dimension(180, 28)
+            ComboboxSpeedSearch.installSpeedSearch(this) { it }
+        }
+        internal val allTraceButton = createToggleButton(AllIcons.Actions.ListFiles, "Показать все Trace-логи", false)
+        internal val appTraceButton = createToggleButton(AllIcons.Nodes.Class, "Показать только Trace приложения", false)
+
         private val clearButton = createToolbarButton(AllIcons.Actions.GC, "Очистить")
         private val saveButton = createToolbarButton(AllIcons.Actions.MenuSaveall, "Сохранить")
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
@@ -116,6 +145,37 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             enableTraceButton.addActionListener { runTracePreparation() }
             disableTraceButton.addActionListener { runTraceRemoval() }
             
+            traceLevelComboBox.addActionListener {
+                val selected = traceLevelComboBox.selectedItem as TraceLevel
+                traceLevelHintLabel.text = selected.description
+                classComboBox.isVisible = (selected == TraceLevel.FULL || selected == TraceLevel.SELECTIVE)
+                if (classComboBox.isVisible && classComboBox.itemCount == 0) {
+                    loadProjectClasses()
+                }
+                saveTraceSettings()
+            }
+            classComboBox.addActionListener { saveTraceSettings() }
+            
+            allTraceButton.addActionListener {
+                if (allTraceButton.isSelected) {
+                    appTraceButton.isSelected = false
+                    allLogsButton.isSelected = false
+                    filterLevel = null
+                    updateButtonBorders()
+                }
+                rebuildLogTable()
+            }
+            
+            appTraceButton.addActionListener {
+                if (appTraceButton.isSelected) {
+                    allTraceButton.isSelected = false
+                    allLogsButton.isSelected = false
+                    filterLevel = null
+                    updateButtonBorders()
+                }
+                rebuildLogTable()
+            }
+            
             openDictionaryButton.addActionListener { openFileInEditor(LogExplanationProvider.DICTIONARY_FILENAME) }
             openDescriptionsButton.addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
             clearButton.addActionListener { clearLogs() }
@@ -136,6 +196,60 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             }
             timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshProcesses(); refreshDevices() } }
             timer.start(); refreshDevices()
+        }
+
+        internal fun resetTraceUI() {
+            ApplicationManager.getApplication().invokeLater {
+                if (!isDisposed) {
+                    traceLevelComboBox.selectedItem = TraceLevel.MINIMAL
+                    traceLevelHintLabel.text = TraceLevel.MINIMAL.description
+                    classComboBox.isVisible = false
+                    allTraceButton.isSelected = false
+                    appTraceButton.isSelected = false
+                    updateButtonBorders()
+                }
+            }
+        }
+
+        private fun loadProjectClasses() {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val names = mutableSetOf<String>()
+                ApplicationManager.getApplication().runReadAction {
+                    val scope = GlobalSearchScope.projectScope(project)
+                    val files = mutableListOf<com.intellij.openapi.vfs.VirtualFile>()
+                    files.addAll(FilenameIndex.getAllFilesByExt(project, "kt", scope))
+                    files.addAll(FilenameIndex.getAllFilesByExt(project, "java", scope))
+                    
+                    val psiManager = PsiManager.getInstance(project)
+                    files.forEach { file ->
+                        val psiFile = psiManager.findFile(file)
+                        if (psiFile is PsiClassOwner) {
+                            psiFile.classes.forEach { it.qualifiedName?.let { qName -> names.add(qName) } }
+                        }
+                    }
+                }
+                
+                val sorted = names.sorted()
+                ApplicationManager.getApplication().invokeLater {
+                    if (!isDisposed) {
+                        val current = classComboBox.selectedItem
+                        classComboBox.removeAllItems()
+                        sorted.forEach { classComboBox.addItem(it) }
+                        if (current != null) classComboBox.selectedItem = current
+                    }
+                }
+            }
+        }
+
+        internal fun saveTraceSettings() {
+            val level = traceLevelComboBox.selectedItem as? TraceLevel ?: TraceLevel.MINIMAL
+            val selectedClass = if (classComboBox.isVisible) classComboBox.selectedItem as? String ?: "" else ""
+            val settingsFile = File(project.basePath, ".idea/logkat_trace_settings.txt")
+            try {
+                if (!settingsFile.parentFile.exists()) settingsFile.parentFile.mkdirs()
+                settingsFile.writeText("LEVEL=${level.name}\nCLASS=$selectedClass")
+                LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
+            } catch (e: Exception) {}
         }
 
         private fun flushPendingLogs() {
@@ -302,11 +416,22 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             leftToolbar.add(deviceComboBox); leftToolbar.add(resStatusPanel); leftToolbar.add(openDictionaryButton); leftToolbar.add(openDescriptionsButton); leftToolbar.add(resetToDefaultButton); leftToolbar.add(bulkUpdateLabelsButton); 
             leftToolbar.add(enableTraceButton); leftToolbar.add(disableTraceButton)
 
+            val traceSettingsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+            traceSettingsPanel.add(traceLevelComboBox)
+            traceSettingsPanel.add(traceLevelHintLabel)
+            traceSettingsPanel.add(classComboBox)
+            traceSettingsPanel.add(allTraceButton)
+            traceSettingsPanel.add(appTraceButton)
+
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             listOf(createFilterToggleButton(Color(180, 0, 0), "E", "Ошибки"), createFilterToggleButton(Color(250, 200, 0), "W", "Варнинги"), createFilterToggleButton(Color(100, 255, 100), "I", "Инфо"), createFilterToggleButton(Color(100, 150, 255), "S", "Система")).forEach { colorButtons.add(it); filterGroupPanel.add(it) }
             val rightToolbar = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 2))
             rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton)
-            val topPanel = JPanel(BorderLayout()); topPanel.add(leftToolbar, BorderLayout.WEST); topPanel.add(rightToolbar, BorderLayout.EAST); panel.add(topPanel, BorderLayout.NORTH)
+            val topPanel = JPanel(BorderLayout())
+            topPanel.add(leftToolbar, BorderLayout.WEST)
+            topPanel.add(traceSettingsPanel, BorderLayout.CENTER)
+            topPanel.add(rightToolbar, BorderLayout.EAST)
+            panel.add(topPanel, BorderLayout.NORTH)
             val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, JBScrollPane(processTree), JBScrollPane(logTable)); splitPane.dividerLocation = 280; panel.add(splitPane, BorderLayout.CENTER)
             processTree.addTreeSelectionListener { val node = processTree.lastSelectedPathComponent as? DefaultMutableTreeNode; val selectedValue = node?.userObject as? String; if (selectedValue != null && selectedValue != lastSelectedPackage) { val parent = node.parent as? DefaultMutableTreeNode; val pkgName = if (parent != null && parent != rootNode && (parent.parent as? DefaultMutableTreeNode) == rootNode) parent.userObject as? String else selectedValue; if (pkgName != lastSelectedPackage) { lastSelectedPackage = pkgName; rebuildLogTable() } } }
             deviceComboBox.addActionListener { val selected = deviceComboBox.selectedItem as? IDevice; if (selected != null && selected.serialNumber != currentDevice?.serialNumber) { currentDevice = selected; startLogcatCapture(selected) } }
@@ -324,7 +449,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private fun createToolbarButton(icon: Icon, tip: String) = JButton(icon).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createToggleButton(icon: Icon, tip: String, initial: Boolean) = JToggleButton(icon, initial).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createFilterToggleButton(color: Color, level: String, tip: String) = JToggleButton().apply {
-            preferredSize = Dimension(28, 28); background = color; isOpaque = true; isContentAreaFilled = true; border = BorderFactory.createLineBorder(Color.GRAY, 1); toolTipText = tip; addActionListener { if (isSelected) { filterLevel = level; allLogsButton.isSelected = false; colorButtons.filter { it != this }.forEach { it.isSelected = false } } else if (filterLevel == level) filterLevel = null; updateButtonBorders(); rebuildLogTable() } }
+            preferredSize = Dimension(28, 28); background = color; isOpaque = true; isContentAreaFilled = true; border = BorderFactory.createLineBorder(Color.GRAY, 1); toolTipText = tip; addActionListener { if (isSelected) { filterLevel = level; allLogsButton.isSelected = false; allTraceButton.isSelected = false; appTraceButton.isSelected = false; colorButtons.filter { it != this }.forEach { it.isSelected = false } } else if (filterLevel == level) filterLevel = null; updateButtonBorders(); rebuildLogTable() } }
         
         internal fun updateButtonBorders() { 
             val activeBorder = BorderFactory.createLineBorder(JBColor.namedColor("Label.foreground", Color.BLACK), 3)
@@ -334,6 +459,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             
             allLogsButton.border = if (allLogsButton.isSelected) activeBorder else inactiveBorder
             autoscrollButton.border = if (autoscrollButton.isSelected) redActiveBorder else noneBorder
+            allTraceButton.border = if (allTraceButton.isSelected) activeBorder else noneBorder
+            appTraceButton.border = if (appTraceButton.isSelected) activeBorder else noneBorder
             
             colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
         }
