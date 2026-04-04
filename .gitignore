@@ -22,3 +22,9 @@ Thumbs.db
 ### Local properties ###
 local.properties
 .intellijPlatform/
+
+### Logkat temporary and generated files ###
+on-device-server/
+.idea/logkat_trace_settings.txt
+.idea/logkat_dictionary.txt
+.idea/logkat_descriptions.txt
