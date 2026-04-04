@@ -36,7 +36,6 @@ import javax.swing.*
 import javax.swing.event.HyperlinkEvent
 import javax.swing.event.HyperlinkListener
 import javax.swing.table.DefaultTableCellRenderer
-import javax.swing.table.DefaultTableModel
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
@@ -56,15 +55,15 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         internal val processTree = Tree(treeModel)
         
         private val columnNames = arrayOf("Время", "PID", "TID", "Ур.", "Тег", "Сообщение")
-        internal val logTableModel = object : DefaultTableModel(columnNames, 0) {
-            override fun isCellEditable(row: Int, column: Int): Boolean = false
-        }
+        internal val logTableModel = LogkatTableModel(columnNames)
         internal val logTable = JBTable(logTableModel)
         
         internal val allLogs = mutableListOf<String>() 
         internal val pidToPackage = ConcurrentHashMap<Int, String>()
         internal val packageToLabel = ConcurrentHashMap<String, String>()
         internal val iconCache = ConcurrentHashMap<String, ImageIcon>()
+        internal val fileLocationCache = ConcurrentHashMap<String, Boolean>()
+        internal val pendingLogs = mutableListOf<Array<String>>()
         
         internal var currentDevice: IDevice? = null
         internal var autoscroll = true
@@ -125,6 +124,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             autoscrollButton.addActionListener { 
                 autoscroll = autoscrollButton.isSelected
                 updateButtonBorders()
+                if (autoscroll) {
+                    flushPendingLogs()
+                }
             }
 
             resetToDefaultButton.addActionListener {
@@ -132,8 +134,18 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     LogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely()
                 }
             }
-            timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshDevices(); refreshProcesses() } }
+            timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshProcesses(); refreshDevices() } }
             timer.start(); refreshDevices()
+        }
+
+        private fun flushPendingLogs() {
+            synchronized(pendingLogs) {
+                if (pendingLogs.isNotEmpty()) {
+                    logTableModel.addRows(ArrayList(pendingLogs))
+                    pendingLogs.clear()
+                    scrollTableToBottom()
+                }
+            }
         }
 
         private fun setupExecutionListener() {
@@ -141,10 +153,26 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 override fun processStarted(executorId: String, env: ExecutionEnvironment, handler: ProcessHandler) {
                     ApplicationManager.getApplication().invokeLater {
                         if (isDisposed) return@invokeLater
+                        
+                        // 1. Очищаем все старые логи при любом запуске
                         clearLogs()
-                        val detectedPkg = LogExplanationProvider.getProjectPackageName(project)
+                        
+                        // 2. Получаем реальный applicationId запущенного модуля через Android плагин ИДЕ
+                        val module = (env.runProfile as? com.intellij.execution.configurations.ModuleRunProfile)?.modules?.firstOrNull()
+                        val detectedPkg = module?.let { m ->
+                            try {
+                                val facet = org.jetbrains.android.facet.AndroidFacet.getInstance(m)
+                                facet?.let { f ->
+                                    val model = com.android.tools.idea.model.AndroidModel.get(f)
+                                    model?.applicationId
+                                }
+                            } catch (e: Exception) { null }
+                        } ?: env.runProfile.name.takeIf { it.contains(".") }
+
                         if (detectedPkg != null) {
                             projectPkg = detectedPkg
+                            // Сразу обновляем дерево процессов, чтобы папка "Мой проект" обновилась
+                            refreshProcesses()
                             if (lastSelectedPackage == projectPkg) {
                                 rebuildLogTable()
                             }
@@ -155,8 +183,9 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         }
 
         internal fun clearLogs() {
-            logTableModel.rowCount = 0
+            logTableModel.clear()
             synchronized(allLogs) { allLogs.clear() }
+            synchronized(pendingLogs) { pendingLogs.clear() }
         }
 
         private fun setupTableMouseListener() {
@@ -178,11 +207,10 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                         val menu = JPopupMenu()
                         val copyItem = JMenuItem("Копировать", AllIcons.Actions.Copy)
                         copyItem.addActionListener {
-                            val sb = StringBuilder()
-                            for (i in 0 until logTable.columnCount) {
-                                sb.append(logTable.getValueAt(row, i)?.toString() ?: "").append(" ")
+                            val rowData = logTableModel.getRow(row)
+                            if (rowData != null) {
+                                Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(rowData.joinToString(" ")), null)
                             }
-                            Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(sb.toString().trim()), null)
                         }
                         
                         val infoItem = JMenuItem("Что это?", AllIcons.Actions.Help)
@@ -240,7 +268,14 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     if (table?.getValueAt(row, 5) == stalledMsg) { c.foreground = Color.GRAY; return c }
                     
                     if (tag.trim().equals("LOGKAT_TRACE", ignoreCase = true)) {
-                        c.background = Color(0, 191, 255) // DeepSkyBlue
+                        val rowData = (table?.model as? LogkatTableModel)?.getRow(row)
+                        val isAppCode = rowData?.getOrNull(6) == "APP"
+                        
+                        if (isAppCode) {
+                            c.background = Color(0, 191, 255)
+                        } else {
+                            c.background = Color(180, 150, 255)
+                        }
                         c.foreground = Color.BLACK
                     } else {
                         when (level) {
@@ -284,18 +319,21 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             packageToLabel.putAll(LogExplanationProvider.loadDictionary(project.basePath))
             projectPkg = null 
             iconCache.clear() 
+            fileLocationCache.clear()
         }
         private fun createToolbarButton(icon: Icon, tip: String) = JButton(icon).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createToggleButton(icon: Icon, tip: String, initial: Boolean) = JToggleButton(icon, initial).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createFilterToggleButton(color: Color, level: String, tip: String) = JToggleButton().apply {
             preferredSize = Dimension(28, 28); background = color; isOpaque = true; isContentAreaFilled = true; border = BorderFactory.createLineBorder(Color.GRAY, 1); toolTipText = tip; addActionListener { if (isSelected) { filterLevel = level; allLogsButton.isSelected = false; colorButtons.filter { it != this }.forEach { it.isSelected = false } } else if (filterLevel == level) filterLevel = null; updateButtonBorders(); rebuildLogTable() } }
         
-        private fun updateButtonBorders() { 
+        internal fun updateButtonBorders() { 
             val activeBorder = BorderFactory.createLineBorder(JBColor.namedColor("Label.foreground", Color.BLACK), 3)
+            val redActiveBorder = BorderFactory.createLineBorder(Color.RED, 3)
             val inactiveBorder = BorderFactory.createLineBorder(Color.GRAY, 1)
+            val noneBorder = BorderFactory.createEmptyBorder(1, 1, 1, 1)
             
             allLogsButton.border = if (allLogsButton.isSelected) activeBorder else inactiveBorder
-            autoscrollButton.border = if (autoscrollButton.isSelected) activeBorder else inactiveBorder
+            autoscrollButton.border = if (autoscrollButton.isSelected) redActiveBorder else noneBorder
             
             colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
         }

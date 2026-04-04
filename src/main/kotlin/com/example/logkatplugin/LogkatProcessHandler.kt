@@ -248,11 +248,14 @@ fun LogkatToolWindowFactory.LogkatToolWindow.getAppIcon(pkgName: String): Icon {
 fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
     val device = currentDevice ?: return
     ApplicationManager.getApplication().executeOnPooledThread {
+        pidToPackage.clear()
         device.clients.forEach { it.clientData.packageName?.let { pkg -> pidToPackage[it.clientData.pid] = pkg } }
-        val processReceiver = object : MultiLineReceiver() { override fun processNewLines(lines: Array<out String>) { lines.forEach { line -> val parts = line.trim().split(Regex("\\s+")); if (parts.size >= 8) { val pid = parts[1].toIntOrNull() ?: parts[0].toIntOrNull(); if (pid != null) pidToPackage.putIfAbsent(pid, parts.last()) } } } override fun isCancelled() = isDisposed }
+        val processReceiver = object : MultiLineReceiver() { override fun processNewLines(lines: Array<out String>) { lines.forEach { line -> val parts = line.trim().split(Regex("\\s+")); if (parts.size >= 8) { val pid = parts[1].toIntOrNull() ?: parts[0].toIntOrNull(); if (pid != null) pidToPackage[pid] = parts.last() } } } override fun isCancelled() = isDisposed }
         try { device.executeShellCommand("ps -A", processReceiver, 0, TimeUnit.MILLISECONDS) } catch (e: Exception) {}
-        val currentPids = pidToPackage.toMap(); if (currentPids == lastKnownPids) return@executeOnPooledThread
+        
+        val currentPids = pidToPackage.toMap()
         lastKnownPids = currentPids
+        
         ApplicationManager.getApplication().invokeLater {
             if (isDisposed) return@invokeLater
             val expandedNames = mutableSetOf<List<String>>(); for (i in 0 until processTree.rowCount) if (processTree.isExpanded(i)) expandedNames.add(processTree.getPathForRow(i).path.map { (it as DefaultMutableTreeNode).userObject.toString() })
@@ -266,7 +269,15 @@ fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
                 return filtered
             }
 
-            addGroupWithChildren("⭐ МОЙ ПРОЕКТ", filterPackages { it == projectPkg || it.contains("example") }, pkgToPids)
+            // ⭐ МОЙ ПРОЕКТ - только текущий запущенный проект, без лишних "example"
+            val myProjectPackages = mutableListOf<String>()
+            projectPkg?.let { pkg ->
+                myProjectPackages.add(pkg)
+                usedPackages.add(pkg)
+            }
+            addGroupWithChildren("⭐ МОЙ ПРОЕКТ", myProjectPackages, pkgToPids, true, "приложение не найдено")
+            
+            // Остальные группы
             addGroupWithChildren("🔍 ПРИЛОЖЕНИЯ ГУГЛ", filterPackages { it.startsWith("com.google.android.") && (it.contains("youtube") || it.contains("maps") || it.contains("chrome") || it.contains("gm") || it.contains("calendar") || it.contains("photos") || it.contains("vending")) }, pkgToPids)
             addGroupWithChildren("☁️ СЛУЖБЫ ГУГЛ", filterPackages { it.contains("google") }, pkgToPids)
             addGroupWithChildren("🖼️ ИНТЕРФЕЙС И ГРАФИКА", filterPackages { it.contains("systemui") || it.contains("launcher") || it.contains("surfaceflinger") || it.contains("wm.") || it.contains("wallpaper") || it.contains("renderengine") || it.contains("gpu") || it.contains("composer") }, pkgToPids)
@@ -291,13 +302,24 @@ fun LogkatToolWindowFactory.LogkatToolWindow.restoreExpansionState(node: Default
     } 
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.addGroupWithChildren(title: String, packages: List<String>, pkgMap: Map<String, List<Int>>) { 
-    if (packages.isEmpty()) return
+fun LogkatToolWindowFactory.LogkatToolWindow.addGroupWithChildren(
+    title: String, 
+    packages: List<String>, 
+    pkgMap: Map<String, List<Int>>,
+    showIfEmpty: Boolean = false,
+    emptyMessage: String = "нет активных процессов"
+) { 
+    if (packages.isEmpty() && !showIfEmpty) return
+    
     val groupNode = DefaultMutableTreeNode(title)
-    packages.forEach { pkg -> 
-        val pkgNode = DefaultMutableTreeNode(pkg)
-        pkgMap[pkg]?.sorted()?.forEach { pid -> pkgNode.add(DefaultMutableTreeNode(pid.toString())) }
-        groupNode.add(pkgNode) 
+    if (packages.isEmpty()) {
+        groupNode.add(DefaultMutableTreeNode(emptyMessage))
+    } else {
+        packages.forEach { pkg -> 
+            val pkgNode = DefaultMutableTreeNode(pkg)
+            pkgMap[pkg]?.sorted()?.forEach { pid -> pkgNode.add(DefaultMutableTreeNode(pid.toString())) }
+            groupNode.add(pkgNode) 
+        }
     }
     rootNode.add(groupNode) 
 }

@@ -24,17 +24,26 @@ fun LogkatToolWindowFactory.LogkatToolWindow.startLogcatCapture(device: IDevice)
                             val cleanLine = if (line.length > 700) line.substring(0, 700) else line
                             synchronized(allLogs) {
                                 allLogs.add(cleanLine)
-                                if (allLogs.size > 5000) allLogs.removeAt(0)
+                                if (allLogs.size > 10000) allLogs.removeAt(0)
                             }
+                            
                             ApplicationManager.getApplication().invokeLater {
                                 if (isDisposed) return@invokeLater
                                 if (lastSelectedPackage != null && isLineRelatedToPackage(line, lastSelectedPackage!!) && isLinePassingFilter(line)) {
-                                    if (logTableModel.rowCount == 1 && logTableModel.getValueAt(0, 5) == stalledMsg) {
-                                        logTableModel.removeRow(0)
+                                    val parsed = parseLogLine(cleanLine)
+                                    
+                                    if (autoscroll) {
+                                        if (logTableModel.rowCount == 1 && logTableModel.getValueAt(0, 5) == stalledMsg) {
+                                            logTableModel.clear()
+                                        }
+                                        logTableModel.addRow(parsed)
+                                        scrollTableToBottom()
+                                    } else {
+                                        synchronized(pendingLogs) {
+                                            pendingLogs.add(parsed)
+                                            if (pendingLogs.size > 5000) pendingLogs.removeAt(0)
+                                        }
                                     }
-                                    logTableModel.addRow(parseLogLine(cleanLine))
-                                    if (logTableModel.rowCount > 1500) logTableModel.removeRow(0)
-                                    if (autoscroll) scrollTableToBottom()
                                 }
                             }
                         }
@@ -47,21 +56,38 @@ fun LogkatToolWindowFactory.LogkatToolWindow.startLogcatCapture(device: IDevice)
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<String> {
-    // threadtime: 04-04 07:47:02.595 17888 17948 D TAG: Message
     val parts = line.trim().split(Regex("\\s+"), 6)
-    if (parts.size < 6) return arrayOf("", "", "", "", "", line)
+    // Возвращаем массив из 7 элементов (7-й для типа APP/LIB)
+    if (parts.size < 6) return arrayOf("", "", "", "", "", line, "")
     
-    val time = parts[1] // Берем только время (без даты 04-04)
+    val time = parts[1]
     val pid = parts[2]
     val tid = parts[3]
     val level = parts[4]
     
-    // В шестой части лежит "TAG: Message"
     val rest = parts[5].split(":", limit = 2)
     val tag = rest.getOrNull(0)?.trim() ?: ""
     val message = rest.getOrNull(1)?.trim() ?: ""
     
-    return arrayOf(time, pid, tid, level, tag, message)
+    var type = ""
+    if (tag.equals("LOGKAT_TRACE", ignoreCase = true)) {
+        val match = Regex("""\(([\w\d_-]+\.(?:kt|java)):(\d+)\)""").find(message)
+        if (match != null) {
+            val fileName = match.groupValues[1]
+            type = getFileLocationType(fileName)
+        }
+    }
+    
+    return arrayOf(time, pid, tid, level, tag, message, type)
+}
+
+fun LogkatToolWindowFactory.LogkatToolWindow.getFileLocationType(fileName: String): String {
+    // Проверяем кэш, чтобы не искать в индексе IDE на каждую строку (это медленно)
+    return fileLocationCache.getOrPut(fileName) {
+        // Ищем файл только в области проекта
+        val projectFiles = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project))
+        projectFiles.isNotEmpty() // true если файл наш, false если библиотечный
+    }.let { if (it) "APP" else "LIB" }
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): Boolean {
@@ -94,13 +120,13 @@ fun LogkatToolWindowFactory.LogkatToolWindow.isLineRelatedToPackage(line: String
 
 fun LogkatToolWindowFactory.LogkatToolWindow.rebuildLogTable() {
     if (isDisposed || lastSelectedPackage == null) return
-    logTableModel.rowCount = 0
+    logTableModel.clear()
     val snapshot = synchronized(allLogs) { allLogs.toList() }
     val filtered = snapshot.filter { isLineRelatedToPackage(it, lastSelectedPackage!!) && isLinePassingFilter(it) }
     if (filtered.isEmpty()) {
-        logTableModel.addRow(arrayOf("", "", "", "I", "INFO", stalledMsg))
+        logTableModel.addRow(arrayOf("", "", "", "I", "INFO", stalledMsg, ""))
     } else {
-        filtered.takeLast(1000).forEach { logTableModel.addRow(parseLogLine(it)) }
+        filtered.takeLast(2000).forEach { logTableModel.addRow(parseLogLine(it)) }
     }
     if (autoscroll) scrollTableToBottom()
 }
@@ -120,7 +146,10 @@ fun LogkatToolWindowFactory.LogkatToolWindow.saveLogsToFile() {
         try {
             val content = StringBuilder()
             for (row in 0 until logTableModel.rowCount) {
-                content.append((0 until logTable.columnCount).joinToString(" ") { logTable.getValueAt(row, it).toString() }).append("\n")
+                val rowData = logTableModel.getRow(row)
+                if (rowData != null) {
+                    content.append(rowData.sliceArray(0..5).joinToString(" ")).append("\n")
+                }
             }
             fileWrapper.file.writeText(content.toString())
         } catch (e: Exception) {
@@ -130,7 +159,6 @@ fun LogkatToolWindowFactory.LogkatToolWindow.saveLogsToFile() {
 }
 
 fun LogkatToolWindowFactory.LogkatToolWindow.navigateToCode(message: String) {
-    // Регулярка теперь ищет формат (File.java:123) или (File.kt:123) внутри сообщения
     val traceRegex = Regex("""\(([\w\d_-]+\.(?:kt|java)):(\d+)\)""")
     traceRegex.find(message)?.let { match ->
         val fileName = match.groupValues[1]
