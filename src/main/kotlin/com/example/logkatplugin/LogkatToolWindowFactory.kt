@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
@@ -44,6 +45,7 @@ import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
+import javax.swing.text.html.HTMLEditorKit
 
 class LogkatToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -125,6 +127,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
         private val clearButton = createToolbarButton(AllIcons.Actions.GC, "Очистить")
         private val saveButton = createToolbarButton(AllIcons.Actions.MenuSaveall, "Сохранить")
+        private val guideButton = JButton("Guide").apply { preferredSize = Dimension(70, 28); toolTipText = "Инструкция пользователя" }
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
         internal val allLogsButton = createToggleButton(AllIcons.General.Filter, "Все логи", true)
 
@@ -180,6 +183,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             openDescriptionsButton.addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
             clearButton.addActionListener { clearLogs() }
             saveButton.addActionListener { saveLogsToFile() }
+            guideButton.addActionListener { LogkatGuideDialog(project).show() }
             
             autoscrollButton.addActionListener { 
                 autoscroll = autoscrollButton.isSelected
@@ -281,7 +285,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                         if (isDisposed) return@invokeLater
                         
                         // Очищаем логи только при новом запуске
-                        clearLogs()
+                        clearLogs() 
                         
                         val module = (env.runProfile as? com.intellij.execution.configurations.ModuleRunProfile)?.modules?.firstOrNull()
                         val detectedPkg = module?.let { m ->
@@ -436,7 +440,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             listOf(createFilterToggleButton(Color(180, 0, 0), "E", "Ошибки"), createFilterToggleButton(Color(250, 200, 0), "W", "Варнинги"), createFilterToggleButton(Color(100, 255, 100), "I", "Инфо"), createFilterToggleButton(Color(100, 150, 255), "S", "Система")).forEach { colorButtons.add(it); filterGroupPanel.add(it) }
             val rightToolbar = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 2))
-            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton)
+            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton); rightToolbar.add(guideButton)
             val topPanel = JPanel(BorderLayout())
             topPanel.add(leftToolbar, BorderLayout.WEST)
             topPanel.add(traceSettingsPanel, BorderLayout.CENTER)
@@ -469,8 +473,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             
             allLogsButton.border = if (allLogsButton.isSelected) activeBorder else inactiveBorder
             autoscrollButton.border = if (autoscrollButton.isSelected) redActiveBorder else noneBorder
-            allTraceButton.border = if (allTraceButton.isSelected) activeBorder else inactiveBorder
-            appTraceButton.border = if (appTraceButton.isSelected) activeBorder else inactiveBorder
+            allTraceButton.border = if (allTraceButton.isSelected) activeBorder else noneBorder
+            appTraceButton.border = if (appTraceButton.isSelected) activeBorder else noneBorder
             
             colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
 
@@ -517,5 +521,134 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         }
 
         fun getContent() = panel
+    }
+
+    private class LogkatGuideDialog(project: Project) : DialogWrapper(project) {
+        private var currentLang = "RU"
+        private val editorPane = JEditorPane().apply {
+            isEditable = false
+            contentType = "text/html"
+            editorKit = HTMLEditorKit()
+        }
+
+        init {
+            title = "Logkat User Guide / Руководство пользователя"
+            updateContent()
+            init()
+        }
+
+        private fun updateContent() {
+            editorPane.text = if (currentLang == "RU") getRussianGuide() else getEnglishGuide()
+            editorPane.caretPosition = 0
+        }
+
+        override fun createNorthPanel(): JComponent {
+            val panel = JPanel(FlowLayout(FlowLayout.LEFT))
+            val langButton = JButton("English / Русский").apply {
+                addActionListener {
+                    currentLang = if (currentLang == "RU") "EN" else "RU"
+                    updateContent()
+                }
+            }
+            panel.add(langButton)
+            return panel
+        }
+
+        override fun createCenterPanel(): JComponent {
+            val scroll = JBScrollPane(editorPane)
+            scroll.preferredSize = Dimension(700, 600)
+            return scroll
+        }
+
+        private fun getRussianGuide(): String = """
+            <html>
+            <body style='padding: 10px; font-family: sans-serif;'>
+            <h1>📑 Полное руководство пользователя Logkat Process Logger</h1>
+            <p>Logkat — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.</p>
+            <hr>
+            <h2>🌳 1. Дерево процессов (Левая панель)</h2>
+            <p>Инструмент автоматически сканирует устройство и группирует процессы по смысловым категориям:</p>
+            <ul>
+            <li><b>⭐ МОЙ ПРОЕКТ</b>: Приложение, запущенное из текущего окна Android Studio.</li>
+            <li><b>🔍 ПРИЛОЖЕНИЯ ГУГЛ / ☁️ СЛУЖБЫ ГУГЛ</b>: Сервисы Chrome, YouTube и GMS.</li>
+            <li><b>🖼️ ИНТЕРФЕЙС И ГРАФИКА</b>: Процессы оболочки (systemui, launcher).</li>
+            <li><b>📡 СЕТЬ / 🔊 МЕДИА / 🛠️ HARDWARE</b>: Низкоуровневые модули и драйверы.</li>
+            <li><b>👤 ПОЛЬЗОВАТЕЛЬСКИЕ ПРИЛОЖЕНИЯ</b>: Стороннее ПО (WhatsApp и др.).</li>
+            <li><b>🧱 НИЗКОУРОВНЕВЫЕ</b>: Процессы ядра (init, zygote).</li>
+            </ul>
+            <hr>
+            <h2>🛠️ 2. Панель управления</h2>
+            <ul>
+            <li><b>📝 Словарь:</b> Задание понятных имен для пакетов.</li>
+            <li><b>ℹ️ База знаний:</b> Описания тегов и ошибок.</li>
+            <li><b>🔄 Сброс:</b> Возврат к стандартным настройкам.</li>
+            <li><b>📡 Синхронизация:</b> Получение реальных иконок и имен с устройства.</li>
+            <li><b>▶️ Вкл. Трассировку:</b> Активация ASM-инструментации.</li>
+            <li><b>⏹️ Выкл. Трассировку:</b> Удаление инструментации из проекта.</li>
+            </ul>
+            <hr>
+            <h2>🎨 3. Цветовая карта логов</h2>
+            <table border='1' cellpadding='5' style='border-collapse: collapse; width: 100%;'>
+            <tr><td style='background-color: #00BFFF;'>🟦 Ярко-голубой</td><td><b>APP Trace</b>: Вход в ваш метод.</td></tr>
+            <tr><td style='background-color: #B496FF;'>🟪 Светло-фиолетовый</td><td><b>LIB Trace</b>: Вход в метод библиотеки.</td></tr>
+            <tr><td style='background-color: #B40000; color: white;'>🟥 Темно-красный</td><td><b>Error</b>: Критическая ошибка.</td></tr>
+            <tr><td style='background-color: #FAC800;'>🟨 Оранжево-желтый</td><td><b>Warning</b>: Предупреждение.</td></tr>
+            <tr><td style='background-color: #28283C; color: #6496FF;'>⬛ Темно-синий</td><td><b>System</b>: Системные логи Android.</td></tr>
+            <tr><td style='background-color: #373737; color: #64FF64;'>⬜ Темно-серый</td><td><b>User</b>: Обычные логи Log.d/i.</td></tr>
+            </table>
+            <hr>
+            <h2>🖱️ 4. Интерактив</h2>
+            <ul>
+            <li><b>Двойной клик:</b> Быстрый переход к исходному коду.</li>
+            <li><b>Правая кнопка -> Что это?:</b> Расшифровка тегов и ошибок.</li>
+            <li><b>Авто-очистка:</b> Логи чистятся только при новом запуске (Run).</li>
+            </ul>
+            </body></html>
+        """.trimIndent()
+
+        private fun getEnglishGuide(): String = """
+            <html>
+            <body style='padding: 10px; font-family: sans-serif;'>
+            <h1>📑 Complete User Guide for Logkat Process Logger</h1>
+            <p>Logkat is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing.</p>
+            <hr>
+            <h2>🌳 1. Process Tree (Left Panel)</h2>
+            <ul>
+            <li><b>⭐ MY PROJECT</b>: App launched from current Android Studio window.</li>
+            <li><b>🔍 GOOGLE APPS / ☁️ SERVICES</b>: Chrome, YouTube and GMS background tasks.</li>
+            <li><b>🖼️ INTERFACE & GRAPHICS</b>: systemui, surfaceflinger, launcher.</li>
+            <li><b>📡 NETWORK / 🔊 MEDIA / 🛠️ HARDWARE</b>: Low-level modules and drivers.</li>
+            <li><b>👤 USER APPLICATIONS</b>: WhatsApp, Telegram, etc.</li>
+            <li><b>🧱 LOW-LEVEL</b>: Kernel processes (init, zygote).</li>
+            </ul>
+            <hr>
+            <h2>🛠️ 2. Control Panel</h2>
+            <ul>
+            <li><b>📝 Dictionary:</b> Set custom names for packages.</li>
+            <li><b>ℹ️ Knowledge Base:</b> Descriptions for tags and errors.</li>
+            <li><b>🔄 Reset:</b> Restore default settings.</li>
+            <li><b>📡 Sync:</b> Fetch icons and app names from device.</li>
+            <li><b>▶️ Enable Tracing:</b> Activate ASM instrumentation.</li>
+            <li><b>⏹️ Disable Tracing:</b> Remove instrumentation from project.</li>
+            </ul>
+            <hr>
+            <h2>🎨 3. Log Color Map</h2>
+            <table border='1' cellpadding='5' style='border-collapse: collapse; width: 100%;'>
+            <tr><td style='background-color: #00BFFF;'>🔵 Bright Blue</td><td><b>APP Trace</b>: Entry into your method.</td></tr>
+            <tr><td style='background-color: #B496FF;'>🟪 Light Purple</td><td><b>LIB Trace</b>: Entry into library method.</td></tr>
+            <tr><td style='background-color: #B40000; color: white;'>🔴 Dark Red</td><td><b>Error</b>: Critical error or crash.</td></tr>
+            <tr><td style='background-color: #FAC800;'>🟡 Orange-Yellow</td><td><b>Warning</b>: System or app warning.</td></tr>
+            <tr><td style='background-color: #28283C; color: #6496FF;'>⬛ Dark Blue</td><td><b>System</b>: Android system logs.</td></tr>
+            <tr><td style='background-color: #373737; color: #64FF64;'>⬜ Dark Gray</td><td><b>User</b>: Regular logs (Log.d/i).</td></tr>
+            </table>
+            <hr>
+            <h2>🖱️ 4. Interactive Features</h2>
+            <ul>
+            <li><b>Double-click:</b> Jump to source code instantly.</li>
+            <li><b>Right-click -> What is this?:</b> Explain tags and errors.</li>
+            <li><b>Auto-clear:</b> Logs cleared only on new app start (Run).</li>
+            </ul>
+            </body></html>
+        """.trimIndent()
     }
 }
