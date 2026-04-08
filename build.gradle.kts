@@ -55,7 +55,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         id.set("com.example.logkatplugin")
-        name.set("Logkat Process Logger")
+        name.set("LK Process Logger")
 
         ideaVersion {
             sinceBuild.set("232")

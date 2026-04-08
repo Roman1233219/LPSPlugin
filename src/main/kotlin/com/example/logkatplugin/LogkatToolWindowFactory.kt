@@ -60,9 +60,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             MINIMAL("Минимальный", "Только public методы"),
             BASIC("Базовый", "public + protected"),
             STANDARD("Стандартный", "public + protected + package-private"),
-            ADVANCED("Расширенный", "всё + конструкторы + геттеры/сеттеры"),
-            FULL("Полный", "абсолютно всё (включая toString/hashCode)"),
-            SELECTIVE("Выборочный", "только @Trace");
+            ADVANCED("Расширенный", "Всё, включая конструкторы и геттеры"),
+            SELECTIVE("Выборочный", "Работает через аннотацию @Trace в коде");
             override fun toString(): String = label
         }
 
@@ -111,16 +110,11 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         internal val enableTraceButton = createToolbarButton(AllIcons.Actions.Execute, "Включить трассировку")
         internal val disableTraceButton = createToolbarButton(AllIcons.Actions.Suspend, "Выключить трассировку")
 
-        // Новые компоненты трассировки
+        // Компоненты трассировки
         internal val traceLevelComboBox = ComboBox(TraceLevel.values())
         internal val traceLevelHintLabel = JLabel(TraceLevel.MINIMAL.description).apply {
             font = font.deriveFont(Font.ITALIC, 11f)
             foreground = JBColor.GRAY
-        }
-        internal val classComboBox = ComboBox<String>().apply {
-            isVisible = false
-            preferredSize = Dimension(180, 28)
-            ComboboxSpeedSearch.installSpeedSearch(this) { it }
         }
         internal val allTraceButton = createToggleButton(AllIcons.Actions.ListFiles, "Показать все Trace-логи", false)
         internal val appTraceButton = createToggleButton(AllIcons.Nodes.Class, "Показать только Trace приложения", false)
@@ -151,13 +145,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             traceLevelComboBox.addActionListener {
                 val selected = traceLevelComboBox.selectedItem as TraceLevel
                 traceLevelHintLabel.text = selected.description
-                classComboBox.isVisible = (selected == TraceLevel.FULL || selected == TraceLevel.SELECTIVE)
-                if (classComboBox.isVisible && classComboBox.itemCount == 0) {
-                    loadProjectClasses()
-                }
                 saveTraceSettings()
             }
-            classComboBox.addActionListener { saveTraceSettings() }
             
             allTraceButton.addActionListener {
                 if (allTraceButton.isSelected) {
@@ -218,7 +207,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 if (!isDisposed) {
                     traceLevelComboBox.selectedItem = TraceLevel.MINIMAL
                     traceLevelHintLabel.text = TraceLevel.MINIMAL.description
-                    classComboBox.isVisible = false
                     allTraceButton.isSelected = false
                     appTraceButton.isSelected = false
                     updateTraceButtonsState()
@@ -227,43 +215,12 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             }
         }
 
-        private fun loadProjectClasses() {
-            ApplicationManager.getApplication().executeOnPooledThread {
-                val names = mutableSetOf<String>()
-                ApplicationManager.getApplication().runReadAction {
-                    val scope = GlobalSearchScope.projectScope(project)
-                    val files = mutableListOf<com.intellij.openapi.vfs.VirtualFile>()
-                    files.addAll(FilenameIndex.getAllFilesByExt(project, "kt", scope))
-                    files.addAll(FilenameIndex.getAllFilesByExt(project, "java", scope))
-                    
-                    val psiManager = PsiManager.getInstance(project)
-                    files.forEach { file ->
-                        val psiFile = psiManager.findFile(file)
-                        if (psiFile is PsiClassOwner) {
-                            psiFile.classes.forEach { it.qualifiedName?.let { qName -> names.add(qName) } }
-                        }
-                    }
-                }
-                
-                val sorted = names.sorted()
-                ApplicationManager.getApplication().invokeLater {
-                    if (!isDisposed) {
-                        val current = classComboBox.selectedItem
-                        classComboBox.removeAllItems()
-                        sorted.forEach { classComboBox.addItem(it) }
-                        if (current != null) classComboBox.selectedItem = current
-                    }
-                }
-            }
-        }
-
         internal fun saveTraceSettings() {
             val level = traceLevelComboBox.selectedItem as? TraceLevel ?: TraceLevel.MINIMAL
-            val selectedClass = if (classComboBox.isVisible) classComboBox.selectedItem as? String ?: "" else ""
             val settingsFile = File(project.basePath, ".idea/logkat_trace_settings.txt")
             try {
                 if (!settingsFile.parentFile.exists()) settingsFile.parentFile.mkdirs()
-                settingsFile.writeText("LEVEL=${level.name}\nCLASS=$selectedClass")
+                settingsFile.writeText("LEVEL=${level.name}")
                 LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
             } catch (e: Exception) {}
         }
@@ -433,7 +390,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             val traceSettingsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
             traceSettingsPanel.add(traceLevelComboBox)
             traceSettingsPanel.add(traceLevelHintLabel)
-            traceSettingsPanel.add(classComboBox)
             traceSettingsPanel.add(allTraceButton)
             traceSettingsPanel.add(appTraceButton)
 
@@ -481,7 +437,6 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             // Блокировка/разблокировка UI трассировки
             val traceEnabled = isTraceInjected()
             traceLevelComboBox.isEnabled = traceEnabled
-            classComboBox.isEnabled = traceEnabled
             allTraceButton.isEnabled = traceEnabled
             appTraceButton.isEnabled = traceEnabled
             traceLevelHintLabel.isEnabled = traceEnabled
@@ -532,7 +487,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         }
 
         init {
-            title = "Logkat User Guide / Руководство пользователя"
+            title = "LK User Guide / Руководство пользователя"
             updateContent()
             init()
         }
@@ -563,8 +518,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private fun getRussianGuide(): String = """
             <html>
             <body style='padding: 10px; font-family: sans-serif;'>
-            <h1>📑 Полное руководство пользователя Logkat Process Logger</h1>
-            <p>Logkat — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.</p>
+            <h1>📑 Полное руководство пользователя LK Process Logger</h1>
+            <p>LK — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.</p>
             <hr>
             <h2>🌳 1. Дерево процессов (Левая панель)</h2>
             <p>Инструмент автоматически сканирует устройство и группирует процессы по смысловым категориям:</p>
@@ -609,8 +564,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private fun getEnglishGuide(): String = """
             <html>
             <body style='padding: 10px; font-family: sans-serif;'>
-            <h1>📑 Complete User Guide for Logkat Process Logger</h1>
-            <p>Logkat is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing.</p>
+            <h1>📑 Complete User Guide for LK Process Logger</h1>
+            <p>LK is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing.</p>
             <hr>
             <h2>🌳 1. Process Tree (Left Panel)</h2>
             <ul>

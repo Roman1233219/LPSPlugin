@@ -1,11 +1,11 @@
 <idea-plugin>
     <id>com.example.logkatplugin</id>
-    <name>Logkat Process Logger</name>
+    <name>LK Process Logger</name>
     <version>2.0.0</version>
     <vendor>Roman Dev</vendor>
 
     <description><![CDATA[
-      <h1>Logkat Viewer & Process Analyzer</h1>
+      <h1>LK-Logger & Process Analyzer</h1>
       <p>Профессиональный инструмент для работы с логами Android, который превращает хаос из строк в структурированное дерево.</p>
       <ul>
         <li><b>Умная фильтрация:</b> Автоматическое распределение процессов по 11 категориям (Связь, Медиа, Системные службы, Низкоуровневые процессы и др.).</li>
@@ -19,7 +19,7 @@
     <depends>org.jetbrains.android</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Logkat Processes"
+        <toolWindow id="LK Processes"
                     secondary="false"
                     icon="AllIcons.Actions.Find"
                     anchor="bottom"
