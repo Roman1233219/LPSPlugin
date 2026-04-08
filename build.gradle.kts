@@ -7,7 +7,7 @@ plugins {
     id("maven-publish")
 }
 
-group = "com.example.logkatplugin"
+group = "com.example.lpsplugin"
 version = "2.0.0"
 
 repositories {
@@ -40,7 +40,7 @@ dependencies {
     implementation("org.ow2.asm:asm:9.6")
     implementation("org.ow2.asm:asm-commons:9.6")
 
-    // Android Gradle Plugin API для инструментации (нужно для компиляции LogkatAsmFactory)
+    // Android Gradle Plugin API для инструментации
     compileOnly("com.android.tools.build:gradle-api:8.1.0")
     compileOnly("com.android.tools.build:gradle:8.1.0")
 
@@ -54,8 +54,8 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        id.set("com.example.logkatplugin")
-        name.set("LK Process Logger")
+        id.set("com.example.lpsplugin")
+        name.set("LPS Process Logger")
 
         ideaVersion {
             sinceBuild.set("232")

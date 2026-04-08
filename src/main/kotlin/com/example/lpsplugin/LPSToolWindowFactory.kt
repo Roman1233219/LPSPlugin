@@ -1,4 +1,4 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import com.android.ddmlib.AndroidDebugBridge
 import com.android.ddmlib.IDevice
@@ -47,15 +47,15 @@ import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.text.html.HTMLEditorKit
 
-class LogkatToolWindowFactory : ToolWindowFactory {
+class LPSToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val myToolWindow = LogkatToolWindow(project)
+        val myToolWindow = LPSToolWindow(project)
         val content = ContentFactory.getInstance().createContent(myToolWindow.getContent(), "", false)
         toolWindow.contentManager.addContent(content)
         Disposer.register(project, myToolWindow)
     }
 
-    class LogkatToolWindow(internal val project: Project) : Disposable {
+    class LPSToolWindow(internal val project: Project) : Disposable {
         enum class TraceLevel(val label: String, val description: String) {
             MINIMAL("Минимальный", "Только public методы"),
             BASIC("Базовый", "public + protected"),
@@ -71,7 +71,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         internal val processTree = Tree(treeModel)
         
         private val columnNames = arrayOf("Время", "PID", "TID", "Ур.", "Тег", "Сообщение")
-        internal val logTableModel = LogkatTableModel(columnNames)
+        internal val logTableModel = LPSTableModel(columnNames)
         internal val logTable = JBTable(logTableModel)
         
         internal val allLogs = mutableListOf<String>() 
@@ -168,11 +168,11 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                 rebuildLogTable()
             }
             
-            openDictionaryButton.addActionListener { openFileInEditor(LogExplanationProvider.DICTIONARY_FILENAME) }
-            openDescriptionsButton.addActionListener { openFileInEditor(LogExplanationProvider.DESCRIPTIONS_FILENAME) }
+            openDictionaryButton.addActionListener { openFileInEditor(LPSLogExplanationProvider.DICTIONARY_FILENAME) }
+            openDescriptionsButton.addActionListener { openFileInEditor(LPSLogExplanationProvider.DESCRIPTIONS_FILENAME) }
             clearButton.addActionListener { clearLogs() }
             saveButton.addActionListener { saveLogsToFile() }
-            guideButton.addActionListener { LogkatGuideDialog(project).show() }
+            guideButton.addActionListener { LPSGuideDialog(project).show() }
             
             autoscrollButton.addActionListener { 
                 autoscroll = autoscrollButton.isSelected
@@ -195,7 +195,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
             resetToDefaultButton.addActionListener {
                 if (Messages.showYesNoDialog(project, "Восстановить настройки?", "Сброс", Messages.getWarningIcon()) == Messages.YES) {
-                    LogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely()
+                    LPSLogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely()
                 }
             }
             timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshProcesses(); refreshDevices() } }
@@ -217,7 +217,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
         internal fun saveTraceSettings() {
             val level = traceLevelComboBox.selectedItem as? TraceLevel ?: TraceLevel.MINIMAL
-            val settingsFile = File(project.basePath, ".idea/logkat_trace_settings.txt")
+            val settingsFile = File(project.basePath, ".idea/lps_trace_settings.txt")
             try {
                 if (!settingsFile.parentFile.exists()) settingsFile.parentFile.mkdirs()
                 settingsFile.writeText("LEVEL=${level.name}")
@@ -305,7 +305,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                             val pkgName = if (pid != null) pidToPackage[pid] ?: findPackageByPid(pidStr) else null
                             val tag = logTable.getValueAt(row, 4)?.toString() ?: ""
                             val level = logTable.getValueAt(row, 3)?.toString() ?: ""
-                            val explanation = LogExplanationProvider.getSmartLogExplanation(pkgName, tag, messageValue, level)
+                            val explanation = LPSLogExplanationProvider.getSmartLogExplanation(pkgName, tag, messageValue, level)
                             showHint(explanation, e, logTable, true, messageValue)
                         }
                         menu.add(copyItem); menu.add(infoItem)
@@ -352,8 +352,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
                     
                     if (table?.getValueAt(row, 5) == stalledMsg) { c.foreground = Color.GRAY; return c }
                     
-                    if (tag.trim().equals("LOGKAT_TRACE", ignoreCase = true)) {
-                        val rowData = (table?.model as? LogkatTableModel)?.getRow(row)
+                    if (tag.trim().equals("LPS_TRACE", ignoreCase = true)) {
+                        val rowData = (table?.model as? LPSTableModel)?.getRow(row)
                         val isAppCode = rowData?.getOrNull(6) == "APP"
                         
                         if (isAppCode) {
@@ -410,8 +410,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
 
         internal fun reloadTreeSafely() { ApplicationManager.getApplication().invokeLater { if (!isDisposed) treeModel.reload() } }
         internal fun loadInitialData() { 
-            LogExplanationProvider.loadAllDescriptions(project.basePath)
-            packageToLabel.putAll(LogExplanationProvider.loadDictionary(project.basePath))
+            LPSLogExplanationProvider.loadAllDescriptions(project.basePath)
+            packageToLabel.putAll(LPSLogExplanationProvider.loadDictionary(project.basePath))
             projectPkg = null 
             iconCache.clear() 
             fileLocationCache.clear()
@@ -442,7 +442,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
             traceLevelHintLabel.isEnabled = traceEnabled
         }
 
-        private fun showHint(text: String, e: MouseEvent, component: Component, isSticky: Boolean, originalMessage: String = "") { hideActiveBalloon(); isStickyBalloon = isSticky; val balloon = JBPopupFactory.getInstance().createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), object : HyperlinkListener { override fun hyperlinkUpdate(event: HyperlinkEvent) { if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && event.description == "show_stacktrace") Messages.showInfoMessage(LogExplanationProvider.getDetailedStackTraceExplanation(originalMessage), "Информация") } }).setFadeoutTime(0).setHideOnClickOutside(true).createBalloon(); balloon.show(RelativePoint(component, e.point), Balloon.Position.above); activeBalloon = balloon }
+        private fun showHint(text: String, e: MouseEvent, component: Component, isSticky: Boolean, originalMessage: String = "") { hideActiveBalloon(); isStickyBalloon = isSticky; val balloon = JBPopupFactory.getInstance().createHtmlTextBalloonBuilder(text, null, JBColor(Color(255, 255, 220), Color(60, 60, 60)), object : HyperlinkListener { override fun hyperlinkUpdate(event: HyperlinkEvent) { if (event.eventType == HyperlinkEvent.EventType.ACTIVATED && event.description == "show_stacktrace") Messages.showInfoMessage(LPSLogExplanationProvider.getDetailedStackTraceExplanation(originalMessage), "Информация") } }).setFadeoutTime(0).setHideOnClickOutside(true).createBalloon(); balloon.show(RelativePoint(component, e.point), Balloon.Position.above); activeBalloon = balloon }
         private fun checkAndHideBalloon(e: MouseEvent) { if (activeBalloon != null && !isStickyBalloon) hideActiveBalloon() }
         private fun hideActiveBalloon() { activeBalloon?.hide(); activeBalloon = null }
         
@@ -478,7 +478,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         fun getContent() = panel
     }
 
-    private class LogkatGuideDialog(project: Project) : DialogWrapper(project) {
+    private class LPSGuideDialog(project: Project) : DialogWrapper(project) {
         private var currentLang = "RU"
         private val editorPane = JEditorPane().apply {
             isEditable = false
@@ -487,7 +487,7 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         }
 
         init {
-            title = "LK User Guide / Руководство пользователя"
+            title = "LPS User Guide / Руководство пользователя"
             updateContent()
             init()
         }
@@ -518,8 +518,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private fun getRussianGuide(): String = """
             <html>
             <body style='padding: 10px; font-family: sans-serif;'>
-            <h1>📑 Полное руководство пользователя LK Process Logger</h1>
-            <p>LK — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.</p>
+            <h1>📑 Полное руководство пользователя LPS Process Logger</h1>
+            <p>LPS — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.</p>
             <hr>
             <h2>🌳 1. Дерево процессов (Левая панель)</h2>
             <p>Инструмент автоматически сканирует устройство и группирует процессы по смысловым категориям:</p>
@@ -564,8 +564,8 @@ class LogkatToolWindowFactory : ToolWindowFactory {
         private fun getEnglishGuide(): String = """
             <html>
             <body style='padding: 10px; font-family: sans-serif;'>
-            <h1>📑 Complete User Guide for LK Process Logger</h1>
-            <p>LK is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing.</p>
+            <h1>📑 Complete User Guide for LPS Process Logger</h1>
+            <p>LPS is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing.</p>
             <hr>
             <h2>🌳 1. Process Tree (Left Panel)</h2>
             <ul>

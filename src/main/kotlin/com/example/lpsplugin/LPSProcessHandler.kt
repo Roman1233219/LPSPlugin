@@ -1,4 +1,4 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import com.android.ddmlib.IDevice
 import com.android.ddmlib.MultiLineReceiver
@@ -17,16 +17,14 @@ import javax.swing.ImageIcon
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreePath
 
-fun LogkatToolWindowFactory.LogkatToolWindow.updateTraceButtonsState() {
+fun LPSToolWindowFactory.LPSToolWindow.updateTraceButtonsState() {
     val enabled = isTraceInjected()
     enableTraceButton.isEnabled = !enabled
     disableTraceButton.isEnabled = enabled
-    
-    // Также обновляем состояние всех элементов управления трассировкой
     updateButtonBorders()
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.findTargetGradleFile(): File? {
+fun LPSToolWindowFactory.LPSToolWindow.findTargetGradleFile(): File? {
     val paths = listOf("app/build.gradle", "build.gradle", "app/build.gradle.kts", "build.gradle.kts")
     for (p in paths) {
         val f = File(project.basePath, p)
@@ -35,12 +33,12 @@ fun LogkatToolWindowFactory.LogkatToolWindow.findTargetGradleFile(): File? {
     return null
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.isTraceInjected(): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.isTraceInjected(): Boolean {
     val target = findTargetGradleFile()
-    return target?.exists() == true && target.readText().contains("com.example.logkat")
+    return target?.exists() == true && target.readText().contains("com.example.lps")
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.findPackageByPid(pid: String): String? {
+fun LPSToolWindowFactory.LPSToolWindow.findPackageByPid(pid: String): String? {
     val root = treeModel.root as? DefaultMutableTreeNode ?: return null
     val e = root.breadthFirstEnumeration()
     while (e.hasMoreElements()) {
@@ -53,14 +51,14 @@ fun LogkatToolWindowFactory.LogkatToolWindow.findPackageByPid(pid: String): Stri
     return null
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.ensureScriptsExist(): File? {
+fun LPSToolWindowFactory.LPSToolWindow.ensureScriptsExist(): File? {
     val targetFile = findTargetGradleFile() ?: return null
     val baseDir = File(targetFile.parentFile, "on-device-server/src")
     if (!baseDir.exists()) baseDir.mkdirs()
 
     val psFile = File(baseDir, "run_resolver.ps1")
     val javaFile = File(baseDir, "LabelResolver.java")
-    val tracerFile = File(baseDir, "LogkatTracer.java")
+    val tracerFile = File(baseDir, "LPSTracer.java")
 
     fun extractResource(resName: String, target: File) {
         val stream = javaClass.getResourceAsStream("/scripts/$resName")
@@ -72,7 +70,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.ensureScriptsExist(): File? {
     try {
         extractResource("run_resolver.ps1", psFile)
         extractResource("LabelResolver.java", javaFile)
-        extractResource("LogkatTracer.java", tracerFile)
+        extractResource("LPSTracer.java", tracerFile)
         LocalFileSystem.getInstance().refreshIoFiles(listOf(psFile, javaFile, tracerFile))
         return psFile
     } catch (e: Exception) {
@@ -80,42 +78,42 @@ fun LogkatToolWindowFactory.LogkatToolWindow.ensureScriptsExist(): File? {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.injectGradleApply(project: Project): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.injectGradleApply(project: Project): Boolean {
     val target = findTargetGradleFile() ?: return false
     try {
         val content = target.readText()
-        if (content.contains("com.example.logkat")) return true
+        if (content.contains("com.example.lps")) return true
 
         val isKts = target.name.endsWith(".kts")
         val injection = if (isKts) {
             """
-            // --- Logkat Instrumentation Start ---
+            // --- LPS Instrumentation Start ---
             buildscript {
                 repositories {
                     mavenLocal()
                 }
                 dependencies {
-                    classpath("com.example.logkatplugin:LogkatPlugin:2.0.0")
+                    classpath("com.example.lpsplugin:LPSPlugin:2.0.0")
                 }
             }
-            apply(plugin = "com.example.logkat")
+            apply(plugin = "com.example.lps")
             android.sourceSets.getByName("main").java.srcDir("on-device-server/src")
-            // --- Logkat Instrumentation End ---
+            // --- LPS Instrumentation End ---
             """.trimIndent()
         } else {
             """
-            // --- Logkat Instrumentation Start ---
+            // --- LPS Instrumentation Start ---
             buildscript {
                 repositories {
                     mavenLocal()
                 }
                 dependencies {
-                    classpath "com.example.logkatplugin:LogkatPlugin:2.0.0"
+                    classpath "com.example.lpsplugin:LPSPlugin:2.0.0"
                 }
             }
-            apply plugin: 'com.example.logkat'
+            apply plugin: 'com.example.lps'
             android.sourceSets.main.java.srcDirs += 'on-device-server/src'
-            // --- Logkat Instrumentation End ---
+            // --- LPS Instrumentation End ---
             """.trimIndent()
         }
 
@@ -127,12 +125,12 @@ fun LogkatToolWindowFactory.LogkatToolWindow.injectGradleApply(project: Project)
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.removeGradleApply(project: Project): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.removeGradleApply(project: Project): Boolean {
     val target = findTargetGradleFile() ?: return false
     try {
         val content = target.readText()
-        val startMarker = "// --- Logkat Instrumentation Start ---"
-        val endMarker = "// --- Logkat Instrumentation End ---"
+        val startMarker = "// --- LPS Instrumentation Start ---"
+        val endMarker = "// --- LPS Instrumentation End ---"
         
         if (content.contains(startMarker)) {
             val startIdx = content.indexOf(startMarker)
@@ -149,7 +147,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.removeGradleApply(project: Project)
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.runTracePreparation() {
+fun LPSToolWindowFactory.LPSToolWindow.runTracePreparation() {
     if (Messages.showYesNoDialog(project, "Включить трассировку проекта?\nЭто активирует плагин инструментации.\nУбедитесь, что вы выполнили 'publishToMavenLocal' для плагина.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
         val scriptFile = ensureScriptsExist()
         if (scriptFile != null) {
@@ -165,19 +163,15 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runTracePreparation() {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.runTraceRemoval() {
+fun LPSToolWindowFactory.LPSToolWindow.runTraceRemoval() {
     if (Messages.showYesNoDialog(project, "Выключить трассировку проекта?\nНастройки будут удалены из build.gradle.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
         if (removeGradleApply(project)) {
-            // Очищаем файл настроек при выключении
-            val settingsFile = File(project.basePath, ".idea/logkat_trace_settings.txt")
+            val settingsFile = File(project.basePath, ".idea/lps_trace_settings.txt")
             if (settingsFile.exists()) {
                 settingsFile.delete()
                 LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
             }
-            
-            // Сбрасываем UI трассировки (включает вызов updateTraceButtonsState)
             resetTraceUI()
-            
             Messages.showInfoMessage(project, "Трассировка выключена.", "Трассировка")
         } else {
             Messages.showErrorDialog(project, "Не удалось очистить build.gradle.", "Ошибка")
@@ -185,7 +179,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runTraceRemoval() {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.runDeepSync() {
+fun LPSToolWindowFactory.LPSToolWindow.runDeepSync() {
     if (Messages.showYesNoDialog(project, "Синхронизировать имена и иконки? Старые иконки будут удалены.", "Синхронизация", Messages.getQuestionIcon()) == Messages.YES) {
         val targetFile = findTargetGradleFile() ?: return
         val scriptFile = ensureScriptsExist()
@@ -210,7 +204,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runDeepSync() {
                     if (line.contains("|")) {
                         val parts = line.split("|"); if (parts.size >= 2) {
                             val pkg = parts[0].trim(); val lbl = parts[1].trim()
-                            packageToLabel[pkg] = lbl; LogExplanationProvider.writeToDictionary(project.basePath, pkg, lbl, projectPkg)
+                            packageToLabel[pkg] = lbl; LPSLogExplanationProvider.writeToDictionary(project.basePath, pkg, lbl, projectPkg)
                         }
                     }
                 }}
@@ -230,7 +224,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.runDeepSync() {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.getGroupIcon(groupName: String): Icon = when {
+fun LPSToolWindowFactory.LPSToolWindow.getGroupIcon(groupName: String): Icon = when {
     groupName.contains("МОЙ ПРОЕКТ") -> AllIcons.Nodes.HomeFolder
     groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") -> AllIcons.Nodes.Package
     groupName.contains("ПРИЛОЖЕНИЯ ГУГЛ") -> AllIcons.Nodes.PpWeb
@@ -244,7 +238,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.getGroupIcon(groupName: String): Ic
     else -> AllIcons.Nodes.Folder
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.getGroupColor(groupName: String): Color = when {
+fun LPSToolWindowFactory.LPSToolWindow.getGroupColor(groupName: String): Color = when {
     groupName.contains("МОЙ ПРОЕКТ") -> Color(180, 150, 255)
     groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") -> Color(150, 255, 150)
     groupName.contains("ГУГЛ") -> Color(255, 255, 150)
@@ -257,9 +251,9 @@ fun LogkatToolWindowFactory.LogkatToolWindow.getGroupColor(groupName: String): C
     else -> Color.LIGHT_GRAY
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.getAppIcon(pkgName: String): Icon { val cached = iconCache[pkgName]; if (cached != null) return cached; val iconFile = File("${project.basePath}/on-device-server/src/icons/$pkgName.png"); if (iconFile.exists()) { try { val img = ImageIcon(iconFile.absolutePath); val scaled = ImageIcon(img.image.getScaledInstance(16, 16, Image.SCALE_SMOOTH)); iconCache[pkgName] = scaled; return scaled } catch (e: Exception) {} }; return when { pkgName.contains("example") || pkgName == projectPkg -> AllIcons.Nodes.HomeFolder; pkgName.contains("google") -> AllIcons.Nodes.PpWeb; pkgName.contains("android") -> AllIcons.General.Settings; else -> AllIcons.Nodes.Package } }
+fun LPSToolWindowFactory.LPSToolWindow.getAppIcon(pkgName: String): Icon { val cached = iconCache[pkgName]; if (cached != null) return cached; val iconFile = File("${project.basePath}/on-device-server/src/icons/$pkgName.png"); if (iconFile.exists()) { try { val img = ImageIcon(iconFile.absolutePath); val scaled = ImageIcon(img.image.getScaledInstance(16, 16, Image.SCALE_SMOOTH)); iconCache[pkgName] = scaled; return scaled } catch (e: Exception) {} }; return when { pkgName.contains("example") || pkgName == projectPkg -> AllIcons.Nodes.HomeFolder; pkgName.contains("google") -> AllIcons.Nodes.PpWeb; pkgName.contains("android") -> AllIcons.General.Settings; else -> AllIcons.Nodes.Package } }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
+fun LPSToolWindowFactory.LPSToolWindow.refreshProcesses() {
     val device = currentDevice ?: return
     ApplicationManager.getApplication().executeOnPooledThread {
         pidToPackage.clear()
@@ -283,7 +277,6 @@ fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
                 return filtered
             }
 
-            // ⭐ МОЙ ПРОЕКТ - только текущий запущенный проект, без лишних "example"
             val myProjectPackages = mutableListOf<String>()
             projectPkg?.let { pkg ->
                 myProjectPackages.add(pkg)
@@ -291,7 +284,6 @@ fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
             }
             addGroupWithChildren("⭐ МОЙ ПРОЕКТ", myProjectPackages, pkgToPids, true, "приложение не найдено")
             
-            // Остальные группы
             addGroupWithChildren("🔍 ПРИЛОЖЕНИЯ ГУГЛ", filterPackages { it.startsWith("com.google.android.") && (it.contains("youtube") || it.contains("maps") || it.contains("chrome") || it.contains("gm") || it.contains("calendar") || it.contains("photos") || it.contains("vending")) }, pkgToPids)
             addGroupWithChildren("☁️ СЛУЖБЫ ГУГЛ", filterPackages { it.contains("google") }, pkgToPids)
             addGroupWithChildren("🖼️ ИНТЕРФЕЙС И ГРАФИКА", filterPackages { it.contains("systemui") || it.contains("launcher") || it.contains("surfaceflinger") || it.contains("wm.") || it.contains("wallpaper") || it.contains("renderengine") || it.contains("gpu") || it.contains("composer") }, pkgToPids)
@@ -308,7 +300,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.refreshProcesses() {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.restoreExpansionState(node: DefaultMutableTreeNode, path: TreePath, expandedNames: Set<List<String>>) { 
+fun LPSToolWindowFactory.LPSToolWindow.restoreExpansionState(node: DefaultMutableTreeNode, path: TreePath, expandedNames: Set<List<String>>) { 
     if (expandedNames.contains(path.path.map { (it as DefaultMutableTreeNode).userObject.toString() })) processTree.expandPath(path)
     for (i in 0 until node.childCount) { 
         val child = node.getChildAt(i) as DefaultMutableTreeNode
@@ -316,7 +308,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.restoreExpansionState(node: Default
     } 
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.addGroupWithChildren(
+fun LPSToolWindowFactory.LPSToolWindow.addGroupWithChildren(
     title: String, 
     packages: List<String>, 
     pkgMap: Map<String, List<Int>>,

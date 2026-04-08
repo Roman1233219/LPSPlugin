@@ -1,4 +1,4 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -7,10 +7,10 @@ import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import java.io.File
 
-object LogExplanationProvider {
+object LPSLogExplanationProvider {
 
-    const val DICTIONARY_FILENAME = ".idea/logkat_dictionary.txt"
-    const val DESCRIPTIONS_FILENAME = ".idea/logkat_descriptions.txt"
+    const val DICTIONARY_FILENAME = ".idea/lps_dictionary.txt"
+    const val DESCRIPTIONS_FILENAME = ".idea/lps_descriptions.txt"
 
     private val processDescriptions = mutableMapOf<String, String>()
     private val tagDescriptions = mutableMapOf<String, String>()
@@ -279,7 +279,7 @@ BpBinder=Сторона-клиент Binder-соединения.
 ActivityManager=Управление жизненным циклом активностей.
 OpenGLRenderer=Рендеринг графики через OpenGL.
 EglManager=Управление контекстом EGL для OpenGL.
-message_sending=Компонент отправки сообщений приложения Pachca.
+message_sending=Компонент отправки сообщений приложения.
 SenderService=Сервис фоновой отправки сообщений.
 SessionLifecycleClient=Клиент отслеживания сессии.
 SessionLifecycleService=Сервис отслеживания сессии.

@@ -1,8 +1,8 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import javax.swing.table.AbstractTableModel
 
-class LogkatTableModel(private val columnNames: Array<String>) : AbstractTableModel() {
+class LPSTableModel(private val columnNames: Array<String>) : AbstractTableModel() {
     private val rows = mutableListOf<Array<String>>()
     private val MAX_ROWS = 10000
 
@@ -18,7 +18,6 @@ class LogkatTableModel(private val columnNames: Array<String>) : AbstractTableMo
         rows.add(row)
         if (rows.size > MAX_ROWS) {
             rows.removeAt(0)
-            // Уведомляем таблицу, что данные сдвинулись, но без полной перерисовки
             fireTableDataChanged()
         } else {
             fireTableRowsInserted(rows.size - 1, rows.size - 1)

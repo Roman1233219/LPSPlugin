@@ -1,4 +1,4 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import com.android.ddmlib.IDevice
 import com.android.ddmlib.MultiLineReceiver
@@ -13,7 +13,7 @@ import com.intellij.psi.search.GlobalSearchScope
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-fun LogkatToolWindowFactory.LogkatToolWindow.startLogcatCapture(device: IDevice) {
+fun LPSToolWindowFactory.LPSToolWindow.startLogcatCapture(device: IDevice) {
     ApplicationManager.getApplication().executeOnPooledThread {
         try {
             synchronized(allLogs) { allLogs.clear() }
@@ -55,9 +55,8 @@ fun LogkatToolWindowFactory.LogkatToolWindow.startLogcatCapture(device: IDevice)
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<String> {
+fun LPSToolWindowFactory.LPSToolWindow.parseLogLine(line: String): Array<String> {
     val parts = line.trim().split(Regex("\\s+"), 6)
-    // Возвращаем массив из 7 элементов (7-й для типа APP/LIB)
     if (parts.size < 6) return arrayOf("", "", "", "", "", line, "")
     
     val time = parts[1]
@@ -70,7 +69,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<S
     val message = rest.getOrNull(1)?.trim() ?: ""
     
     var type = ""
-    if (tag.equals("LOGKAT_TRACE", ignoreCase = true)) {
+    if (tag.equals("LPS_TRACE", ignoreCase = true)) {
         val match = Regex("""\(([\w\d_-]+\.(?:kt|java)):(\d+)\)""").find(message)
         if (match != null) {
             val fileName = match.groupValues[1]
@@ -81,7 +80,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.parseLogLine(line: String): Array<S
     return arrayOf(time, pid, tid, level, tag, message, type)
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.getFileLocationType(fileName: String): String {
+fun LPSToolWindowFactory.LPSToolWindow.getFileLocationType(fileName: String): String {
     return fileLocationCache.getOrPut(fileName) {
         var found = false
         ApplicationManager.getApplication().runReadAction {
@@ -92,7 +91,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.getFileLocationType(fileName: Strin
     }.let { if (it) "APP" else "LIB" }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.isLinePassingFilter(line: String): Boolean {
     val query = searchField.text.trim()
     if (query.isNotEmpty() && !line.contains(query, ignoreCase = true)) return false
     
@@ -100,12 +99,11 @@ fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): 
     val tag = parsed[4]
     val type = parsed[6]
     
-    // Новые фильтры трассировки
     if (allTraceButton.isSelected) {
-        return tag.equals("LOGKAT_TRACE", ignoreCase = true)
+        return tag.equals("LPS_TRACE", ignoreCase = true)
     }
     if (appTraceButton.isSelected) {
-        return tag.equals("LOGKAT_TRACE", ignoreCase = true) && type == "APP"
+        return tag.equals("LPS_TRACE", ignoreCase = true) && type == "APP"
     }
 
     if (allLogsButton.isSelected) return true
@@ -125,14 +123,14 @@ fun LogkatToolWindowFactory.LogkatToolWindow.isLinePassingFilter(line: String): 
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.isLineRelatedToPackage(line: String, packageName: String): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.isLineRelatedToPackage(line: String, packageName: String): Boolean {
     val parsed = parseLogLine(line)
     val pidFromLine = parsed[1].toIntOrNull()
     if (pidFromLine != null && pidToPackage[pidFromLine] == packageName) return true
     return line.contains(packageName, ignoreCase = true) || (line.contains("ActivityManager") && line.contains(packageName))
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.rebuildLogTable() {
+fun LPSToolWindowFactory.LPSToolWindow.rebuildLogTable() {
     if (isDisposed || lastSelectedPackage == null) return
     logTableModel.clear()
     val snapshot = synchronized(allLogs) { allLogs.toList() }
@@ -145,13 +143,13 @@ fun LogkatToolWindowFactory.LogkatToolWindow.rebuildLogTable() {
     if (autoscroll) scrollTableToBottom()
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.scrollTableToBottom() {
+fun LPSToolWindowFactory.LPSToolWindow.scrollTableToBottom() {
     if (logTableModel.rowCount > 0 && !isDisposed) {
         logTable.scrollRectToVisible(logTable.getCellRect(logTableModel.rowCount - 1, 0, true))
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.saveLogsToFile() {
+fun LPSToolWindowFactory.LPSToolWindow.saveLogsToFile() {
     val selectedPackage = lastSelectedPackage ?: "all"
     val fileName = "logs_${selectedPackage.replace(".", "_")}_${System.currentTimeMillis()}.txt"
     val fileWrapper = FileChooserFactory.getInstance().createSaveFileDialog(FileSaverDescriptor("Сохранить логи", "Выберите место", "txt"), project)
@@ -172,7 +170,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.saveLogsToFile() {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.navigateToCode(message: String) {
+fun LPSToolWindowFactory.LPSToolWindow.navigateToCode(message: String) {
     val traceRegex = Regex("""\(([\w\d_-]+\.(?:kt|java)):(\d+)\)""")
     traceRegex.find(message)?.let { match ->
         val fileName = match.groupValues[1]
@@ -188,7 +186,7 @@ fun LogkatToolWindowFactory.LogkatToolWindow.navigateToCode(message: String) {
     }
 }
 
-fun LogkatToolWindowFactory.LogkatToolWindow.doNavigate(fileName: String, line: Int): Boolean {
+fun LPSToolWindowFactory.LPSToolWindow.doNavigate(fileName: String, line: Int): Boolean {
     val scope = GlobalSearchScope.allScope(project)
     val files = FilenameIndex.getFilesByName(project, fileName, scope)
     val psiFile = files.firstOrNull() ?: return false

@@ -1,38 +1,26 @@
-package com.example.logkatplugin
+package com.example.lpsplugin
 
 import com.android.build.api.instrumentation.*
 import org.objectweb.asm.*
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 
-/**
- * Параметры для настройки трассировки через .idea/logkat_trace_settings.txt
- */
-interface LogkatParameters : InstrumentationParameters {
+interface LPSParameters : InstrumentationParameters {
     @get:Input
     val configContent: Property<String>
 }
 
-/**
- * Основная фабрика для внедрения трассировки Logkat.
- */
-abstract class LogkatAsmFactory : AsmClassVisitorFactory<LogkatParameters> {
+abstract class LPSAsmFactory : AsmClassVisitorFactory<LPSParameters> {
     override fun createClassVisitor(classContext: ClassContext, nextClassVisitor: ClassVisitor): ClassVisitor {
         val config = parseConfig(parameters.get().configContent.getOrElse(""))
-        return LogkatClassTransformer(nextClassVisitor, classContext.currentClassData.className, config)
+        return LPSClassTransformer(nextClassVisitor, classContext.currentClassData.className, config)
     }
 
     override fun isInstrumentable(classData: ClassData): Boolean {
         val name = classData.className
         if (name.startsWith("android.") || name.startsWith("com.google.") || 
-            name.contains("LogkatTracer") || name.contains(".R")) return false
+            name.contains("LPSTracer") || name.contains(".R")) return false
             
-        val config = parseConfig(parameters.get().configContent.getOrElse(""))
-        val targetClass = config["CLASS"] ?: ""
-        
-        // Если выбран конкретный класс (для FULL или SELECTIVE), инструментируем только его
-        if (targetClass.isNotEmpty() && name != targetClass) return false
-        
         return true
     }
     
@@ -47,7 +35,7 @@ abstract class LogkatAsmFactory : AsmClassVisitorFactory<LogkatParameters> {
     }
 }
 
-class LogkatClassTransformer(
+class LPSClassTransformer(
     cv: ClassVisitor, 
     private val className: String,
     private val config: Map<String, String>
@@ -65,7 +53,7 @@ class LogkatClassTransformer(
         val mv = super.visitMethod(access, name, descriptor, signature, exceptions)
         
         val shouldTraceByLevel = checkAccessByLevel(access, name, level)
-        return LogkatMethodTransformer(api, mv, className, sourceFile, name, shouldTraceByLevel, level == "SELECTIVE")
+        return LPSMethodTransformer(api, mv, className, sourceFile, name, shouldTraceByLevel, level == "SELECTIVE")
     }
     
     private fun checkAccessByLevel(access: Int, name: String, level: String): Boolean {
@@ -82,15 +70,15 @@ class LogkatClassTransformer(
             "MINIMAL" -> isPublic && !isConstructor && !isAccessor
             "BASIC" -> (isPublic || isProtected) && !isConstructor && !isAccessor
             "STANDARD" -> !isPrivate && !isConstructor && !isAccessor
-            "ADVANCED" -> !isStandard // Включает приватные, конструкторы и геттеры
-            "FULL" -> true // Вообще всё
-            "SELECTIVE" -> false // Решается через аннотацию в MethodTransformer
+            "ADVANCED" -> !isStandard
+            "FULL" -> true
+            "SELECTIVE" -> false
             else -> isPublic
         }
     }
 }
 
-class LogkatMethodTransformer(
+class LPSMethodTransformer(
     api: Int,
     mv: MethodVisitor,
     private val className: String,
@@ -117,7 +105,6 @@ class LogkatMethodTransformer(
 
     override fun visitCode() {
         super.visitCode()
-        // Вставляем лог при ВХОДЕ в метод
         if (shouldTraceByLevel || (isSelective && isMarkedWithTrace)) {
             insertTrace("ENTER: $methodName")
         }
@@ -129,7 +116,7 @@ class LogkatMethodTransformer(
         super.visitLdcInsn(info)
         super.visitMethodInsn(
             Opcodes.INVOKESTATIC,
-            "LogkatTracer",
+            "LPSTracer",
             "trace",
             "(Ljava/lang/String;ILjava/lang/String;)V",
             false

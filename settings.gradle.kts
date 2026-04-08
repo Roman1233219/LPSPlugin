@@ -1,1 +1,1 @@
-rootProject.name = "LogkatPlugin"
+rootProject.name = "LPSPlugin"
