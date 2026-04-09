@@ -146,5 +146,3 @@ The tool automatically scans the device and groups hundreds of processes into 11
 - **Правая кнопка -> Что это?:** Интеллектуальный помощник. Объяснит роль системной службы или причину ошибки.
 - **Авто-очистка:** Таблица чистится автоматически при каждом новом нажатии **Run** в IDE.
 
----
-**Logkat Process Logger — навигатор в мире Android-разработки.**

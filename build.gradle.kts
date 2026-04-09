@@ -5,9 +5,11 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.2.1"
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
     id("maven-publish")
+    id("com.gradle.plugin-publish") version "1.3.0"
+    id("java-gradle-plugin")
 }
 
-group = "com.example.lpsplugin"
+group = "io.github.Roman1233219"
 version = "2.0.0"
 
 repositories {
@@ -27,6 +29,19 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+gradlePlugin {
+    website.set("https://github.com/Roman1233219/LPSPlugin")
+    vcsUrl.set("https://github.com/Roman1233219/LPSPlugin")
+    plugins {
+        register("lpsPlugin") {
+            id = "io.github.Roman1233219.lps"
+            implementationClass = "com.example.lpsplugin.LPSGradlePlugin"
+            displayName = "LPS Instrumentation Plugin"
+            description = "Bytecode instrumentation for LPS Process Logger"
+        }
+    }
+}
+
 publishing {
     publications {
         create<MavenPublication>("maven") {
@@ -36,11 +51,9 @@ publishing {
 }
 
 dependencies {
-    // Библиотеки для работы с байт-кодом (ASM)
     implementation("org.ow2.asm:asm:9.6")
     implementation("org.ow2.asm:asm-commons:9.6")
 
-    // Android Gradle Plugin API для инструментации
     compileOnly("com.android.tools.build:gradle-api:8.1.0")
     compileOnly("com.android.tools.build:gradle:8.1.0")
 
@@ -54,7 +67,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        id.set("com.example.lpsplugin")
+        id.set("io.github.Roman1233219.lpsplugin")
         name.set("LPS Process Logger")
 
         ideaVersion {

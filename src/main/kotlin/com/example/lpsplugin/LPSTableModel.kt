@@ -2,7 +2,7 @@ package com.example.lpsplugin
 
 import javax.swing.table.AbstractTableModel
 
-class LPSTableModel(private val columnNames: Array<String>) : AbstractTableModel() {
+class LPSTableModel(private var columnNames: Array<String>) : AbstractTableModel() {
     private val rows = mutableListOf<Array<String>>()
     private val MAX_ROWS = 10000
 
@@ -12,6 +12,11 @@ class LPSTableModel(private val columnNames: Array<String>) : AbstractTableModel
     
     override fun getValueAt(rowIndex: Int, columnIndex: Int): Any? {
         return rows.getOrNull(rowIndex)?.getOrNull(columnIndex)
+    }
+
+    fun setColumnNames(newNames: Array<String>) {
+        this.columnNames = newNames
+        fireTableStructureChanged()
     }
 
     fun addRow(row: Array<String>) {

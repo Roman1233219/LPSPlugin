@@ -56,13 +56,16 @@ class LPSToolWindowFactory : ToolWindowFactory {
     }
 
     class LPSToolWindow(internal val project: Project) : Disposable {
-        enum class TraceLevel(val label: String, val description: String) {
-            MINIMAL("Минимальный", "Только public методы"),
-            BASIC("Базовый", "public + protected"),
-            STANDARD("Стандартный", "public + protected + package-private"),
-            ADVANCED("Расширенный", "Всё, включая конструкторы и геттеры"),
-            SELECTIVE("Выборочный", "Работает через аннотацию @Trace в коде");
-            override fun toString(): String = label
+        enum class TraceLevel(val labelRu: String, val labelEn: String, val descRu: String, val descEn: String) {
+            MINIMAL("Минимальный", "Minimal", "Только public методы", "Public methods only"),
+            BASIC("Базовый", "Basic", "public + protected", "public + protected"),
+            STANDARD("Стандартный", "Standard", "public + protected + package-private", "public + protected + package-private"),
+            ADVANCED("Расширенный", "Advanced", "Всё, включая конструкторы и геттеры", "Everything, incl. constructors & getters"),
+            SELECTIVE("Выборочный", "Selective", "Работает через аннотацию @Trace в коде", "Works via @Trace annotation in code");
+            
+            fun getLabel(lang: String) = if (lang == "RU") labelRu else labelEn
+            fun getDesc(lang: String) = if (lang == "RU") descRu else descEn
+            override fun toString(): String = labelRu
         }
 
         internal val panel = JPanel(BorderLayout())
@@ -70,8 +73,9 @@ class LPSToolWindowFactory : ToolWindowFactory {
         internal val treeModel = DefaultTreeModel(rootNode)
         internal val processTree = Tree(treeModel)
         
-        private val columnNames = arrayOf("Время", "PID", "TID", "Ур.", "Тег", "Сообщение")
-        internal val logTableModel = LPSTableModel(columnNames)
+        private val columnNamesRu = arrayOf("Время", "PID", "TID", "Ур.", "Тег", "Сообщение")
+        private val columnNamesEn = arrayOf("Time", "PID", "TID", "Lvl", "Tag", "Message")
+        internal val logTableModel = LPSTableModel(columnNamesRu)
         internal val logTable = JBTable(logTableModel)
         
         internal val allLogs = mutableListOf<String>() 
@@ -86,10 +90,11 @@ class LPSToolWindowFactory : ToolWindowFactory {
         internal var lastSelectedPackage: String? = null
         internal var lastKnownPids: Map<Int, String> = emptyMap()
         internal var projectPkg: String? = null
+        internal var currentLang = "RU"
         
         private var activeBalloon: Balloon? = null
         private var isStickyBalloon = false
-        internal val stalledMsg = "Простаивает / нет логов"
+        internal var stalledMsg = "Простаивает / нет логов"
 
         internal val deviceComboBox = ComboBox<IDevice>()
         internal val searchField = SearchTextField().apply { textEditor.preferredSize = Dimension(150, 28) }
@@ -112,7 +117,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
 
         // Компоненты трассировки
         internal val traceLevelComboBox = ComboBox(TraceLevel.values())
-        internal val traceLevelHintLabel = JLabel(TraceLevel.MINIMAL.description).apply {
+        internal val traceLevelHintLabel = JLabel(TraceLevel.MINIMAL.descRu).apply {
             font = font.deriveFont(Font.ITALIC, 11f)
             foreground = JBColor.GRAY
         }
@@ -124,6 +129,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
         private val guideButton = JButton("Guide").apply { preferredSize = Dimension(70, 28); toolTipText = "Инструкция пользователя" }
         private val autoscrollButton = createToggleButton(AllIcons.RunConfigurations.Scroll_down, "Автопрокрутка", true)
         internal val allLogsButton = createToggleButton(AllIcons.General.Filter, "Все логи", true)
+        internal val langButton = createToggleButton(AllIcons.General.Web, "Язык / Language", false)
 
         internal var filterLevel: String? = null
         internal val colorButtons = mutableListOf<JToggleButton>()
@@ -136,6 +142,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             setupTableMouseListener()
             setupUI()
             updateTraceButtonsState()
+            updateUILanguage()
             setupExecutionListener()
             
             bulkUpdateLabelsButton.addActionListener { runDeepSync() }
@@ -144,7 +151,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             
             traceLevelComboBox.addActionListener {
                 val selected = traceLevelComboBox.selectedItem as TraceLevel
-                traceLevelHintLabel.text = selected.description
+                traceLevelHintLabel.text = selected.getDesc(currentLang)
                 saveTraceSettings()
             }
             
@@ -172,7 +179,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             openDescriptionsButton.addActionListener { openFileInEditor(LPSLogExplanationProvider.DESCRIPTIONS_FILENAME) }
             clearButton.addActionListener { clearLogs() }
             saveButton.addActionListener { saveLogsToFile() }
-            guideButton.addActionListener { LPSGuideDialog(project).show() }
+            guideButton.addActionListener { LPSGuideDialog(project, currentLang).show() }
             
             autoscrollButton.addActionListener { 
                 autoscroll = autoscrollButton.isSelected
@@ -193,20 +200,82 @@ class LPSToolWindowFactory : ToolWindowFactory {
                 }
             }
 
+            langButton.addActionListener {
+                currentLang = if (langButton.isSelected) "EN" else "RU"
+                updateUILanguage()
+                saveTraceSettings()
+            }
+
             resetToDefaultButton.addActionListener {
-                if (Messages.showYesNoDialog(project, "Восстановить настройки?", "Сброс", Messages.getWarningIcon()) == Messages.YES) {
-                    LPSLogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely()
+                val msg = if (currentLang == "RU") "Восстановить настройки?" else "Restore settings?"
+                val title = if (currentLang == "RU") "Сброс" else "Reset"
+                if (Messages.showYesNoDialog(project, msg, title, Messages.getWarningIcon()) == Messages.YES) {
+                    LPSLogExplanationProvider.resetToDefault(project.basePath); packageToLabel.clear(); loadInitialData(); reloadTreeSafely(); updateUILanguage()
                 }
             }
             timer = javax.swing.Timer(3000) { if (!isDisposed) { refreshProcesses(); refreshDevices() } }
             timer.start(); refreshDevices()
         }
 
+        private fun updateUILanguage() {
+            val isRu = currentLang == "RU"
+            langButton.isSelected = !isRu
+            
+            // Тултипы кнопок
+            openDictionaryButton.toolTipText = if (isRu) "Словарь" else "Dictionary"
+            openDescriptionsButton.toolTipText = if (isRu) "База знаний" else "Knowledge Base"
+            resetToDefaultButton.toolTipText = if (isRu) "Сброс" else "Reset"
+            bulkUpdateLabelsButton.toolTipText = if (isRu) "Синхронизация" else "Sync"
+            enableTraceButton.toolTipText = if (isRu) "Включить трассировку" else "Enable Tracing"
+            disableTraceButton.toolTipText = if (isRu) "Выключить трассировку" else "Disable Tracing"
+            allTraceButton.toolTipText = if (isRu) "Показать все Trace-логи" else "Show all Trace logs"
+            appTraceButton.toolTipText = if (isRu) "Показать только Trace приложения" else "Show only App Trace"
+            allLogsButton.toolTipText = if (isRu) "Все логи" else "All logs"
+            autoscrollButton.toolTipText = if (isRu) "Автопрокрутка" else "Autoscroll"
+            clearButton.toolTipText = if (isRu) "Очистить" else "Clear"
+            saveButton.toolTipText = if (isRu) "Сохранить" else "Save"
+            guideButton.toolTipText = if (isRu) "Инструкция пользователя" else "User Guide"
+            langButton.toolTipText = if (isRu) "Сменить язык (RU/EN)" else "Change Language (RU/EN)"
+            stopResolutionButton.toolTipText = if (isRu) "Остановить поиск" else "Stop search"
+
+            // Тексты
+            stalledMsg = if (isRu) "Простаивает / нет логов" else "Idle / no logs"
+            
+            // Фильтры уровней
+            colorButtons.getOrNull(0)?.toolTipText = if (isRu) "Ошибки" else "Errors"
+            colorButtons.getOrNull(1)?.toolTipText = if (isRu) "Варнинги" else "Warnings"
+            colorButtons.getOrNull(2)?.toolTipText = if (isRu) "Инфо" else "Info"
+            colorButtons.getOrNull(3)?.toolTipText = if (isRu) "Система" else "System"
+
+            // Trace Level
+            val selected = traceLevelComboBox.selectedItem as? TraceLevel ?: TraceLevel.MINIMAL
+            traceLevelHintLabel.text = selected.getDesc(currentLang)
+            
+            // Обновляем ComboBox renderer
+            traceLevelComboBox.setRenderer(object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component {
+                    val label = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus) as JLabel
+                    if (value is TraceLevel) {
+                        label.text = value.getLabel(currentLang)
+                    }
+                    return label
+                }
+            })
+            traceLevelComboBox.repaint()
+
+            // Столбцы таблицы
+            logTableModel.setColumnNames(if (isRu) columnNamesRu else columnNamesEn)
+            
+            // Перерисовка дерева (корневой узел)
+            rootNode.userObject = if (isRu) "Процессы" else "Processes"
+            treeModel.nodeChanged(rootNode)
+        }
+
         internal fun resetTraceUI() {
             ApplicationManager.getApplication().invokeLater {
                 if (!isDisposed) {
                     traceLevelComboBox.selectedItem = TraceLevel.MINIMAL
-                    traceLevelHintLabel.text = TraceLevel.MINIMAL.description
+                    traceLevelHintLabel.text = TraceLevel.MINIMAL.getDesc(currentLang)
                     allTraceButton.isSelected = false
                     appTraceButton.isSelected = false
                     updateTraceButtonsState()
@@ -220,9 +289,26 @@ class LPSToolWindowFactory : ToolWindowFactory {
             val settingsFile = File(project.basePath, ".idea/lps_trace_settings.txt")
             try {
                 if (!settingsFile.parentFile.exists()) settingsFile.parentFile.mkdirs()
-                settingsFile.writeText("LEVEL=${level.name}")
+                settingsFile.writeText("LEVEL=${level.name}\nLANG=$currentLang")
                 LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
             } catch (e: Exception) {}
+        }
+
+        private fun loadTraceSettings() {
+            val settingsFile = File(project.basePath, ".idea/lps_trace_settings.txt")
+            if (settingsFile.exists()) {
+                try {
+                    val lines = settingsFile.readLines()
+                    lines.forEach { line ->
+                        if (line.startsWith("LEVEL=")) {
+                            val name = line.substringAfter("=")
+                            TraceLevel.values().find { it.name == name }?.let { traceLevelComboBox.selectedItem = it }
+                        } else if (line.startsWith("LANG=")) {
+                            currentLang = line.substringAfter("=")
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
         }
 
         private fun flushPendingLogs() {
@@ -240,10 +326,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
                 override fun processStarted(executorId: String, env: ExecutionEnvironment, handler: ProcessHandler) {
                     ApplicationManager.getApplication().invokeLater {
                         if (isDisposed) return@invokeLater
-                        
-                        // Очищаем логи только при новом запуске
                         clearLogs() 
-                        
                         val module = (env.runProfile as? com.intellij.execution.configurations.ModuleRunProfile)?.modules?.firstOrNull()
                         val detectedPkg = module?.let { m ->
                             try {
@@ -290,7 +373,8 @@ class LPSToolWindowFactory : ToolWindowFactory {
                     if (SwingUtilities.isRightMouseButton(e)) {
                         logTable.setRowSelectionInterval(row, row)
                         val menu = JPopupMenu()
-                        val copyItem = JMenuItem("Копировать", AllIcons.Actions.Copy)
+                        val copyLabel = if (currentLang == "RU") "Копировать" else "Copy"
+                        val copyItem = JMenuItem(copyLabel, AllIcons.Actions.Copy)
                         copyItem.addActionListener {
                             val rowData = logTableModel.getRow(row)
                             if (rowData != null) {
@@ -298,7 +382,8 @@ class LPSToolWindowFactory : ToolWindowFactory {
                             }
                         }
                         
-                        val infoItem = JMenuItem("Что это?", AllIcons.Actions.Help)
+                        val helpLabel = if (currentLang == "RU") "Что это?" else "What is this?"
+                        val infoItem = JMenuItem(helpLabel, AllIcons.Actions.Help)
                         infoItem.addActionListener {
                             val pidStr = logTable.getValueAt(row, 1)?.toString() ?: ""
                             val pid = pidStr.toIntOrNull()
@@ -385,7 +470,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
 
             val leftToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 5, 2))
             leftToolbar.add(deviceComboBox); leftToolbar.add(resStatusPanel); leftToolbar.add(openDictionaryButton); leftToolbar.add(openDescriptionsButton); leftToolbar.add(resetToDefaultButton); leftToolbar.add(bulkUpdateLabelsButton); 
-            leftToolbar.add(enableTraceButton); leftToolbar.add(disableTraceButton)
+            leftToolbar.add(enableTraceButton); leftToolbar.add(disableTraceButton); leftToolbar.add(guideButton)
 
             val traceSettingsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
             traceSettingsPanel.add(traceLevelComboBox)
@@ -396,7 +481,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             val filterGroupPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0))
             listOf(createFilterToggleButton(Color(180, 0, 0), "E", "Ошибки"), createFilterToggleButton(Color(250, 200, 0), "W", "Варнинги"), createFilterToggleButton(Color(100, 255, 100), "I", "Инфо"), createFilterToggleButton(Color(100, 150, 255), "S", "Система")).forEach { colorButtons.add(it); filterGroupPanel.add(it) }
             val rightToolbar = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 2))
-            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton); rightToolbar.add(guideButton)
+            rightToolbar.add(searchField); rightToolbar.add(allLogsButton); rightToolbar.add(filterGroupPanel); rightToolbar.add(autoscrollButton); rightToolbar.add(clearButton); rightToolbar.add(saveButton); rightToolbar.add(langButton)
             val topPanel = JPanel(BorderLayout())
             topPanel.add(leftToolbar, BorderLayout.WEST)
             topPanel.add(traceSettingsPanel, BorderLayout.CENTER)
@@ -415,6 +500,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             projectPkg = null 
             iconCache.clear() 
             fileLocationCache.clear()
+            loadTraceSettings()
         }
         private fun createToolbarButton(icon: Icon, tip: String) = JButton(icon).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
         private fun createToggleButton(icon: Icon, tip: String, initial: Boolean) = JToggleButton(icon, initial).apply { preferredSize = Dimension(28, 28); toolTipText = tip }
@@ -434,7 +520,6 @@ class LPSToolWindowFactory : ToolWindowFactory {
             
             colorButtons.forEach { it.border = if (it.isSelected) activeBorder else inactiveBorder } 
 
-            // Блокировка/разблокировка UI трассировки
             val traceEnabled = isTraceInjected()
             traceLevelComboBox.isEnabled = traceEnabled
             allTraceButton.isEnabled = traceEnabled
@@ -478,8 +563,8 @@ class LPSToolWindowFactory : ToolWindowFactory {
         fun getContent() = panel
     }
 
-    private class LPSGuideDialog(project: Project) : DialogWrapper(project) {
-        private var currentLang = "RU"
+    private class LPSGuideDialog(project: Project, lang: String) : DialogWrapper(project) {
+        private var currentLang = lang
         private val editorPane = JEditorPane().apply {
             isEditable = false
             contentType = "text/html"
@@ -487,7 +572,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
         }
 
         init {
-            title = "LPS User Guide / Руководство пользователя"
+            title = if (currentLang == "RU") "LPS Руководство пользователя" else "LPS User Guide"
             updateContent()
             init()
         }
@@ -502,6 +587,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             val langButton = JButton("English / Русский").apply {
                 addActionListener {
                     currentLang = if (currentLang == "RU") "EN" else "RU"
+                    title = if (currentLang == "RU") "LPS Руководство пользователя" else "LPS User Guide"
                     updateContent()
                 }
             }
@@ -538,7 +624,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             <li><b>ℹ️ База знаний:</b> Описания тегов и ошибок.</li>
             <li><b>🔄 Сброс:</b> Возврат к стандартным настройкам.</li>
             <li><b>📡 Синхронизация:</b> Получение реальных иконок и имен с устройства.</li>
-            <li><b>▶️ Вкл. Трассировку:</b> Активация ASM-инструментации.</li>
+            <li><b>▶️ Вкл. Трассировку:</b> Активация LPS-инструментации.</li>
             <li><b>⏹️ Выкл. Трассировку:</b> Удаление инструментации из проекта.</li>
             </ul>
             <hr>
@@ -583,7 +669,7 @@ class LPSToolWindowFactory : ToolWindowFactory {
             <li><b>ℹ️ Knowledge Base:</b> Descriptions for tags and errors.</li>
             <li><b>🔄 Reset:</b> Restore default settings.</li>
             <li><b>📡 Sync:</b> Fetch icons and app names from device.</li>
-            <li><b>▶️ Enable Tracing:</b> Activate ASM instrumentation.</li>
+            <li><b>▶️ Enable Tracing:</b> Activate LPS instrumentation.</li>
             <li><b>⏹️ Disable Tracing:</b> Remove instrumentation from project.</li>
             </ul>
             <hr>

@@ -35,7 +35,7 @@ fun LPSToolWindowFactory.LPSToolWindow.findTargetGradleFile(): File? {
 
 fun LPSToolWindowFactory.LPSToolWindow.isTraceInjected(): Boolean {
     val target = findTargetGradleFile()
-    return target?.exists() == true && target.readText().contains("com.example.lps")
+    return target?.exists() == true && target.readText().contains("io.github.Roman1233219")
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.findPackageByPid(pid: String): String? {
@@ -82,7 +82,7 @@ fun LPSToolWindowFactory.LPSToolWindow.injectGradleApply(project: Project): Bool
     val target = findTargetGradleFile() ?: return false
     try {
         val content = target.readText()
-        if (content.contains("com.example.lps")) return true
+        if (content.contains("io.github.Roman1233219")) return true
 
         val isKts = target.name.endsWith(".kts")
         val injection = if (isKts) {
@@ -90,13 +90,15 @@ fun LPSToolWindowFactory.LPSToolWindow.injectGradleApply(project: Project): Bool
             // --- LPS Instrumentation Start ---
             buildscript {
                 repositories {
-                    mavenLocal()
+                    gradlePluginPortal()
+                    google()
+                    mavenCentral()
                 }
                 dependencies {
-                    classpath("com.example.lpsplugin:LPSPlugin:2.0.0")
+                    classpath("io.github.Roman1233219:LPSPlugin:2.0.0")
                 }
             }
-            apply(plugin = "com.example.lps")
+            apply(plugin = "io.github.Roman1233219.lps")
             android.sourceSets.getByName("main").java.srcDir("on-device-server/src")
             // --- LPS Instrumentation End ---
             """.trimIndent()
@@ -105,13 +107,15 @@ fun LPSToolWindowFactory.LPSToolWindow.injectGradleApply(project: Project): Bool
             // --- LPS Instrumentation Start ---
             buildscript {
                 repositories {
-                    mavenLocal()
+                    gradlePluginPortal()
+                    google()
+                    mavenCentral()
                 }
                 dependencies {
-                    classpath "com.example.lpsplugin:LPSPlugin:2.0.0"
+                    classpath "io.github.Roman1233219:LPSPlugin:2.0.0"
                 }
             }
-            apply plugin: 'com.example.lps'
+            apply plugin: 'io.github.Roman1233219.lps'
             android.sourceSets.main.java.srcDirs += 'on-device-server/src'
             // --- LPS Instrumentation End ---
             """.trimIndent()
@@ -148,23 +152,41 @@ fun LPSToolWindowFactory.LPSToolWindow.removeGradleApply(project: Project): Bool
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.runTracePreparation() {
-    if (Messages.showYesNoDialog(project, "Включить трассировку проекта?\nЭто активирует плагин инструментации.\nУбедитесь, что вы выполнили 'publishToMavenLocal' для плагина.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
+    val isRu = currentLang == "RU"
+    val msg = if (isRu) 
+        "Включить трассировку проекта?\nЭто активирует плагин инструментации.\nУбедитесь, что вы выполнили 'publishPlugins' для плагина.\n\nВНИМАНИЕ: После активации необходимо выполнить Sync Project (Gradle Sync)!"
+    else 
+        "Enable project tracing?\nThis activates the instrumentation plugin.\nMake sure you have executed 'publishPlugins' for the plugin.\n\nWARNING: Sync Project (Gradle Sync) is required after enabling!"
+    
+    val title = if (isRu) "Трассировка" else "Tracing"
+
+    if (Messages.showYesNoDialog(project, msg, title, Messages.getQuestionIcon()) == Messages.YES) {
         val scriptFile = ensureScriptsExist()
         if (scriptFile != null) {
             if (injectGradleApply(project)) {
                 ApplicationManager.getApplication().invokeLater {
                     updateTraceButtonsState()
                 }
-                Messages.showInfoMessage(project, "Трассировка включена!\nВыполните Rebuild Project для активации.", "Трассировка")
+                val successMsg = if (isRu) "Трассировка включена!\nВыполните Rebuild Project для активации." else "Tracing enabled!\nPerform Rebuild Project to activate."
+                Messages.showInfoMessage(project, successMsg, title)
             } else {
-                Messages.showErrorDialog(project, "Не удалось обновить build.gradle.", "Ошибка")
+                val errorMsg = if (isRu) "Не удалось обновить build.gradle." else "Failed to update build.gradle."
+                Messages.showErrorDialog(project, errorMsg, if (isRu) "Ошибка" else "Error")
             }
         }
     }
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.runTraceRemoval() {
-    if (Messages.showYesNoDialog(project, "Выключить трассировку проекта?\nНастройки будут удалены из build.gradle.", "Трассировка", Messages.getQuestionIcon()) == Messages.YES) {
+    val isRu = currentLang == "RU"
+    val msg = if (isRu) 
+        "Выключить трассировку проекта?\nНастройки будут удалены из build.gradle.\n\nВНИМАНИЕ: После выключения необходимо выполнить Sync Project (Gradle Sync)!"
+    else 
+        "Disable project tracing?\nSettings will be removed from build.gradle.\n\nWARNING: Sync Project (Gradle Sync) is required after disabling!"
+    
+    val title = if (isRu) "Трассировка" else "Tracing"
+
+    if (Messages.showYesNoDialog(project, msg, title, Messages.getQuestionIcon()) == Messages.YES) {
         if (removeGradleApply(project)) {
             val settingsFile = File(project.basePath, ".idea/lps_trace_settings.txt")
             if (settingsFile.exists()) {
@@ -172,19 +194,26 @@ fun LPSToolWindowFactory.LPSToolWindow.runTraceRemoval() {
                 LocalFileSystem.getInstance().refreshIoFiles(listOf(settingsFile))
             }
             resetTraceUI()
-            Messages.showInfoMessage(project, "Трассировка выключена.", "Трассировка")
+            val successMsg = if (isRu) "Трассировка выключена." else "Tracing disabled."
+            Messages.showInfoMessage(project, successMsg, title)
         } else {
-            Messages.showErrorDialog(project, "Не удалось очистить build.gradle.", "Ошибка")
+            val errorMsg = if (isRu) "Не удалось очистить build.gradle." else "Failed to clean build.gradle."
+            Messages.showErrorDialog(project, errorMsg, if (isRu) "Ошибка" else "Error")
         }
     }
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.runDeepSync() {
-    if (Messages.showYesNoDialog(project, "Синхронизировать имена и иконки? Старые иконки будут удалены.", "Синхронизация", Messages.getQuestionIcon()) == Messages.YES) {
+    val isRu = currentLang == "RU"
+    val msg = if (isRu) "Синхронизировать имена и иконки? Старые иконки будут удалены." else "Sync names and icons? Old icons will be deleted."
+    val title = if (isRu) "Синхронизация" else "Sync"
+
+    if (Messages.showYesNoDialog(project, msg, title, Messages.getQuestionIcon()) == Messages.YES) {
         val targetFile = findTargetGradleFile() ?: return
         val scriptFile = ensureScriptsExist()
         if (scriptFile == null || !scriptFile.exists()) {
-            Messages.showErrorDialog(project, "Не удалось подготовить скрипты синхронизации!", "Ошибка")
+            val errorMsg = if (isRu) "Не удалось подготовить скрипты синхронизации!" else "Failed to prepare sync scripts!"
+            Messages.showErrorDialog(project, errorMsg, if (isRu) "Ошибка" else "Error")
             return
         }
 
@@ -193,7 +222,9 @@ fun LPSToolWindowFactory.LPSToolWindow.runDeepSync() {
             iconsDir.deleteRecursively()
         }
 
-        bulkUpdateLabelsButton.isEnabled = false; setStatusText("🔍 Синхронизация...", true)
+        bulkUpdateLabelsButton.isEnabled = false
+        setStatusText(if (isRu) "🔍 Синхронизация..." else "🔍 Syncing...", true)
+        
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val process = ProcessBuilder("powershell.exe", "-ExecutionPolicy", "Bypass", "-File", scriptFile.absolutePath)
@@ -213,11 +244,20 @@ fun LPSToolWindowFactory.LPSToolWindow.runDeepSync() {
                 val vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(iconsDir)
                 vf?.refresh(false, true)
 
-                ApplicationManager.getApplication().invokeLater { if (!isDisposed) { loadInitialData(); reloadTreeSafely() ; bulkUpdateLabelsButton.isEnabled = true; setStatusText("Готово", false) } }
+                ApplicationManager.getApplication().invokeLater { 
+                    if (!isDisposed) { 
+                        loadInitialData()
+                        reloadTreeSafely()
+                        bulkUpdateLabelsButton.isEnabled = true
+                        setStatusText(if (isRu) "Готово" else "Done", false) 
+                    } 
+                }
             } catch (e: Exception) { 
                 ApplicationManager.getApplication().invokeLater { 
-                    Messages.showErrorDialog(project, "Ошибка запуска: ${e.message}", "Ошибка")
-                    setStatusText("Ошибка", false); bulkUpdateLabelsButton.isEnabled = true 
+                    val errorLaunchMsg = if (isRu) "Ошибка запуска: ${e.message}" else "Launch error: ${e.message}"
+                    Messages.showErrorDialog(project, errorLaunchMsg, if (isRu) "Ошибка" else "Error")
+                    setStatusText(if (isRu) "Ошибка" else "Error", false)
+                    bulkUpdateLabelsButton.isEnabled = true 
                 } 
             }
         }
@@ -225,29 +265,29 @@ fun LPSToolWindowFactory.LPSToolWindow.runDeepSync() {
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.getGroupIcon(groupName: String): Icon = when {
-    groupName.contains("МОЙ ПРОЕКТ") -> AllIcons.Nodes.HomeFolder
-    groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") -> AllIcons.Nodes.Package
-    groupName.contains("ПРИЛОЖЕНИЯ ГУГЛ") -> AllIcons.Nodes.PpWeb
-    groupName.contains("СЛУЖБЫ ГУГЛ") -> AllIcons.Nodes.PpLib
-    groupName.contains("ИНТЕРФЕЙС") -> AllIcons.Nodes.Editorconfig
-    groupName.contains("СИСТЕМНЫЕ СЛУЖБЫ") -> AllIcons.Nodes.ConfigFolder
-    groupName.contains("НИЗКОУРОВНЕВЫЕ") -> AllIcons.Nodes.ResourceBundle
-    groupName.contains("ЖЕЛЕЗО") -> AllIcons.General.Settings
-    groupName.contains("СЕТЬ") -> AllIcons.General.Web
-    groupName.contains("МЕДИА") -> AllIcons.Nodes.Class
+    groupName.contains("ПРОЕКТ") || groupName.contains("PROJECT") -> AllIcons.Nodes.HomeFolder
+    groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") || groupName.contains("USER") -> AllIcons.Nodes.Package
+    groupName.contains("ПРИЛОЖЕНИЯ ГУГЛ") || groupName.contains("GOOGLE APPS") -> AllIcons.Nodes.PpWeb
+    groupName.contains("СЛУЖБЫ ГУГЛ") || groupName.contains("GOOGLE SERVICES") -> AllIcons.Nodes.PpLib
+    groupName.contains("ИНТЕРФЕЙС") || groupName.contains("INTERFACE") -> AllIcons.Nodes.Editorconfig
+    groupName.contains("СИСТЕМНЫЕ") || groupName.contains("SYSTEM") -> AllIcons.Nodes.ConfigFolder
+    groupName.contains("НИЗКОУРОВНЕВЫЕ") || groupName.contains("LOW-LEVEL") -> AllIcons.Nodes.ResourceBundle
+    groupName.contains("ЖЕЛЕЗО") || groupName.contains("HARDWARE") -> AllIcons.General.Settings
+    groupName.contains("СЕТЬ") || groupName.contains("NETWORK") -> AllIcons.General.Web
+    groupName.contains("МЕДИА") || groupName.contains("MEDIA") -> AllIcons.Nodes.Class
     else -> AllIcons.Nodes.Folder
 }
 
 fun LPSToolWindowFactory.LPSToolWindow.getGroupColor(groupName: String): Color = when {
-    groupName.contains("МОЙ ПРОЕКТ") -> Color(180, 150, 255)
-    groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") -> Color(150, 255, 150)
-    groupName.contains("ГУГЛ") -> Color(255, 255, 150)
-    groupName.contains("ИНТЕРФЕЙС") -> Color(150, 255, 255)
-    groupName.contains("СИСТЕМНЫЕ") -> Color(100, 150, 255)
-    groupName.contains("НИЗКОУРОВНЕВЫЕ") -> Color(200, 200, 200)
-    groupName.contains("ЖЕЛЕЗО") -> Color(255, 180, 150)
-    groupName.contains("СЕТЬ") -> Color(150, 200, 255)
-    groupName.contains("МЕДИА") -> Color(255, 150, 255)
+    groupName.contains("ПРОЕКТ") || groupName.contains("PROJECT") -> Color(180, 150, 255)
+    groupName.contains("ПОЛЬЗОВАТЕЛЬСКИЕ") || groupName.contains("USER") -> Color(150, 255, 150)
+    groupName.contains("ГУГЛ") || groupName.contains("GOOGLE") -> Color(255, 255, 150)
+    groupName.contains("ИНТЕРФЕЙС") || groupName.contains("INTERFACE") -> Color(150, 255, 255)
+    groupName.contains("СИСТЕМНЫЕ") || groupName.contains("SYSTEM") -> Color(100, 150, 255)
+    groupName.contains("НИЗКОУРОВНЕВЫЕ") || groupName.contains("LOW-LEVEL") -> Color(200, 200, 200)
+    groupName.contains("ЖЕЛЕЗО") || groupName.contains("HARDWARE") -> Color(255, 180, 150)
+    groupName.contains("СЕТЬ") || groupName.contains("NETWORK") -> Color(150, 200, 255)
+    groupName.contains("МЕДИА") || groupName.contains("MEDIA") -> Color(255, 150, 255)
     else -> Color.LIGHT_GRAY
 }
 
@@ -255,6 +295,7 @@ fun LPSToolWindowFactory.LPSToolWindow.getAppIcon(pkgName: String): Icon { val c
 
 fun LPSToolWindowFactory.LPSToolWindow.refreshProcesses() {
     val device = currentDevice ?: return
+    val isRu = currentLang == "RU"
     ApplicationManager.getApplication().executeOnPooledThread {
         pidToPackage.clear()
         device.clients.forEach { it.clientData.packageName?.let { pkg -> pidToPackage[it.clientData.pid] = pkg } }
@@ -282,18 +323,18 @@ fun LPSToolWindowFactory.LPSToolWindow.refreshProcesses() {
                 myProjectPackages.add(pkg)
                 usedPackages.add(pkg)
             }
-            addGroupWithChildren("⭐ МОЙ ПРОЕКТ", myProjectPackages, pkgToPids, true, "приложение не найдено")
+            addGroupWithChildren(if (isRu) "⭐ МОЙ ПРОЕКТ" else "⭐ MY PROJECT", myProjectPackages, pkgToPids, true, if (isRu) "приложение не найдено" else "app not found")
             
-            addGroupWithChildren("🔍 ПРИЛОЖЕНИЯ ГУГЛ", filterPackages { it.startsWith("com.google.android.") && (it.contains("youtube") || it.contains("maps") || it.contains("chrome") || it.contains("gm") || it.contains("calendar") || it.contains("photos") || it.contains("vending")) }, pkgToPids)
-            addGroupWithChildren("☁️ СЛУЖБЫ ГУГЛ", filterPackages { it.contains("google") }, pkgToPids)
-            addGroupWithChildren("🖼️ ИНТЕРФЕЙС И ГРАФИКА", filterPackages { it.contains("systemui") || it.contains("launcher") || it.contains("surfaceflinger") || it.contains("wm.") || it.contains("wallpaper") || it.contains("renderengine") || it.contains("gpu") || it.contains("composer") }, pkgToPids)
-            addGroupWithChildren("📡 СЕТЬ И СВЯЗЬ", filterPackages { it.contains("wifi") || it.contains("bluetooth") || it.contains("telephony") || it.contains("nfc") || it.contains("netd") || it.contains("networkstack") || it.contains("wpa_supplicant") || it.contains("phone") || it.contains("iptables") || it.contains("ipsec") || it.contains("modem") }, pkgToPids)
-            addGroupWithChildren("🔊 МЕДИА И ЗВУК", filterPackages { it.contains("audio") || it.contains("media") || it.contains("codec") || it.contains("drm") || it.contains("sound") || it.contains("video") || it.contains("camera") }, pkgToPids)
-            addGroupWithChildren("🛠️ ЖЕЛЕЗО И ДРАЙВЕРЫ", filterPackages { it.contains("hal") || it.contains("hardware") || it.contains("sensor") || it.contains("gps") || it.contains("fingerprint") || it.contains("thermal") || it.contains("light") || it.contains("power") || it.contains("usb") || it.contains("battery") }, pkgToPids)
-            addGroupWithChildren("⚙️ СИСТЕМНЫЕ СЛУЖБЫ", filterPackages { it.startsWith("com.android.") || it.contains("providers") || it.contains("settings") || it.contains("system_server") || it.contains("permission") || it.contains("keystore") || it.contains("credstore") || it.contains("gatekeeper") || it.contains("security") }, pkgToPids)
-            addGroupWithChildren("🧱 НИЗКОУРОВНЕВЫЕ", filterPackages { it.startsWith("[") || !it.contains(".") || it == "init" || it == "zygote" || it == "adbd" || it == "logd" || it.contains("logger") || it.contains("incident") || it.contains("crash") || it.contains("stats") || it == "sh" || it == "magisk" }, pkgToPids)
-            addGroupWithChildren("👤 ПОЛЬЗОВАТЕЛЬСКИЕ ПРИЛОЖЕНИЯ", filterPackages { it.contains(".") }, pkgToPids)
-            addGroupWithChildren("📂 ПРОЧЕЕ", allPackages.filter { it !in usedPackages }, pkgToPids)
+            addGroupWithChildren(if (isRu) "🔍 ПРИЛОЖЕНИЯ ГУГЛ" else "🔍 GOOGLE APPS", filterPackages { it.startsWith("com.google.android.") && (it.contains("youtube") || it.contains("maps") || it.contains("chrome") || it.contains("gm") || it.contains("calendar") || it.contains("photos") || it.contains("vending")) }, pkgToPids)
+            addGroupWithChildren(if (isRu) "☁️ СЛУЖБЫ ГУГЛ" else "☁️ GOOGLE SERVICES", filterPackages { it.contains("google") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "🖼️ ИНТЕРФЕЙС И ГРАФИКА" else "🖼️ INTERFACE & GRAPHICS", filterPackages { it.contains("systemui") || it.contains("launcher") || it.contains("surfaceflinger") || it.contains("wm.") || it.contains("wallpaper") || it.contains("renderengine") || it.contains("gpu") || it.contains("composer") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "📡 СЕТЬ И СВЯЗЬ" else "📡 NETWORK & CONNECTIVITY", filterPackages { it.contains("wifi") || it.contains("bluetooth") || it.contains("telephony") || it.contains("nfc") || it.contains("netd") || it.contains("networkstack") || it.contains("wpa_supplicant") || it.contains("phone") || it.contains("iptables") || it.contains("ipsec") || it.contains("modem") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "🔊 МЕДИА И ЗВУК" else "🔊 MEDIA & SOUND", filterPackages { it.contains("audio") || it.contains("media") || it.contains("codec") || it.contains("drm") || it.contains("sound") || it.contains("video") || it.contains("camera") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "🛠️ ЖЕЛЕЗО И ДРАЙВЕРЫ" else "🛠️ HARDWARE & DRIVERS", filterPackages { it.contains("hal") || it.contains("hardware") || it.contains("sensor") || it.contains("gps") || it.contains("fingerprint") || it.contains("thermal") || it.contains("light") || it.contains("power") || it.contains("usb") || it.contains("battery") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "⚙️ СИСТЕМНЫЕ СЛУЖБЫ" else "⚙️ SYSTEM SERVICES", filterPackages { it.startsWith("com.android.") || it.contains("providers") || it.contains("settings") || it.contains("system_server") || it.contains("permission") || it.contains("keystore") || it.contains("credstore") || it.contains("gatekeeper") || it.contains("security") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "🧱 НИЗКОУРОВНЕВЫЕ" else "🧱 LOW-LEVEL", filterPackages { it.startsWith("[") || !it.contains(".") || it == "init" || it == "zygote" || it == "adbd" || it == "logd" || it.contains("logger") || it.contains("incident") || it.contains("crash") || it.contains("stats") || it == "sh" || it == "magisk" }, pkgToPids)
+            addGroupWithChildren(if (isRu) "👤 ПОЛЬЗОВАТЕЛЬСКИЕ ПРИЛОЖЕНИЯ" else "👤 USER APPLICATIONS", filterPackages { it.contains(".") }, pkgToPids)
+            addGroupWithChildren(if (isRu) "📂 ПРОЧЕЕ" else "📂 OTHER", allPackages.filter { it !in usedPackages }, pkgToPids)
 
             treeModel.reload(); restoreExpansionState(rootNode, TreePath(rootNode), expandedNames)
         }
