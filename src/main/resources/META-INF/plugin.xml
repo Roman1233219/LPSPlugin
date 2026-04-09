@@ -21,7 +21,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="LPS Processes"
                     secondary="false"
-                    icon="AllIcons.Actions.Find"
+                    icon="lpsIcon.png"
                     anchor="bottom"
                     factoryClass="com.example.lpsplugin.LPSToolWindowFactory"/>
     </extensions>
