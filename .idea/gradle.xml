@@ -10,6 +10,8 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/gradle-module" />
+            <option value="$PROJECT_DIR$/intellij-module" />
           </set>
         </option>
       </GradleProjectSettings>
