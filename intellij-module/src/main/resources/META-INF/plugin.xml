@@ -5,14 +5,47 @@
     <vendor>Roman Dev</vendor>
 
     <description><![CDATA[
-      <h1>LPS-Logger & Process Analyzer</h1>
-      <p>Профессиональный инструмент для работы с логами Android, который превращает хаос из строк в структурированное дерево.</p>
+      <h1>🚀 LPS Process Logger & Deep Tracer</h1>
+      <p>A professional Android log analysis environment that transforms chaotic text logs into a structured process tree with deep bytecode instrumentation.</p>
+
+      <h3>✨ Key Features:</h3>
       <ul>
-        <li><b>Умная фильтрация:</b> Автоматическое распределение процессов по 11 категориям (Связь, Медиа, Системные службы, Низкоуровневые процессы и др.).</li>
-        <li><b>Синхронизация иконок:</b> Глубокая интеграция с устройством для получения реальных иконок и имен приложений.</li>
-        <li><b>Интеллектуальный помощник:</b> Нажмите "Что это?", чтобы получить подробное описание управляющего процесса или расшифровку ошибки из встроенной базы знаний.</li>
-        <li><b>Полная портативность:</b> Плагин автоматически разворачивает необходимые инструменты в любом новом проекте.</li>
+        <li><b>📂 Smart Grouping:</b> Automatically categorizes processes into 11 groups (Google Apps, System Services, Network, Media, Hardware, etc.).</li>
+        <li><b>🎨 Color-Coded Tracing:</b> Deep code instrumentation marks your app methods in bright blue and library methods in purple.</li>
+        <li><b>🔄 Icon Synchronization:</b> Real-time synchronization of app icons and labels directly from your connected Android device.</li>
+        <li><b>💡 Knowledge Base:</b> Right-click any log and select "What is this?" to get instant explanations for system processes, tags, or common errors.</li>
+        <li><b>🎯 Jump to Code:</b> Double-click any trace log to navigate instantly to the corresponding line in your source code.</li>
       </ul>
+
+      <h3>🛠 How Injection Works (Step-by-Step):</h3>
+      <ol>
+        <li><b>Activation:</b> Click the "Enable Tracing" button in the LPS panel.</li>
+        <li><b>Extraction:</b> The plugin automatically extracts the <code>lps-plugin.jar</code> engine into your project's <code>.idea/lps/</code> folder.</li>
+        <li><b>Gradle Update:</b> Your <code>build.gradle(.kts)</code> is automatically updated to include the local instrumentation plugin (Groovy and Kotlin DSL supported).</li>
+        <li><b>Instrumentation:</b> After performing <b>Gradle Sync</b> and <b>Rebuild Project</b>, LPS injects lightweight <code>Log.d</code> calls into your methods during compilation.</li>
+        <li><b>Pure Autonomy:</b> No external dependencies or internet connection required. The plugin brings everything it needs!</li>
+      </ol>
+
+      <h3>⚠️ Requirements & Compatibility:</h3>
+      <ul>
+        <li><b>OS:</b> Works on <b>Windows</b> only (uses PowerShell for advanced features like icon resolving).</li>
+        <li><b>Development:</b> Specifically designed for <b>Android Studio</b> projects.</li>
+        <li><b>Gradle:</b> Requires <b>Gradle 8.0+</b> and <b>Android Gradle Plugin (AGP) 8.0+</b>.</li>
+        <li><b>Languages:</b> Full support for <b>Kotlin</b> and <b>Java</b> source code.</li>
+        <li><b>Tools:</b> Requires <b>ADB</b> to be configured and available in your environment.</li>
+        <li><b>Action Required:</b> A <b>Project Sync</b> and <b>Rebuild</b> are strictly necessary after enabling tracing to see the logs.</li>
+      </ul>
+
+      <h3>🧹 Cleanup & Removal:</h3>
+      <p>If you decide to uninstall the plugin or stop using tracing, please note that the following files and folders created by the plugin should be manually removed if tracing is disabled manually:</p>
+      <ul>
+        <li><code>.idea/lps/</code> (contains the instrumentation engine)</li>
+        <li><code>on-device-server/</code> (contains helper scripts for icon resolving)</li>
+        <li><code>.idea/lps_trace_settings.txt</code> (contains your trace level configuration)</li>
+        <li><code>.idea/lps_dictionary.txt</code> & <code>.idea/lps_descriptions.txt</code> (your custom labels and knowledge base)</li>
+      </ul>
+
+      <p><i>Made with ❤️ for Android developers who value their time and log clarity.</i></p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
