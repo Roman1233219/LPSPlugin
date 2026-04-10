@@ -1,0 +1,28 @@
+<idea-plugin>
+    <id>io.github.Roman1233219.lpsplugin</id>
+    <name>LPS Process Logger</name>
+    <version>2.0.0</version>
+    <vendor>Roman Dev</vendor>
+
+    <description><![CDATA[
+      <h1>LPS-Logger & Process Analyzer</h1>
+      <p>Профессиональный инструмент для работы с логами Android, который превращает хаос из строк в структурированное дерево.</p>
+      <ul>
+        <li><b>Умная фильтрация:</b> Автоматическое распределение процессов по 11 категориям (Связь, Медиа, Системные службы, Низкоуровневые процессы и др.).</li>
+        <li><b>Синхронизация иконок:</b> Глубокая интеграция с устройством для получения реальных иконок и имен приложений.</li>
+        <li><b>Интеллектуальный помощник:</b> Нажмите "Что это?", чтобы получить подробное описание управляющего процесса или расшифровку ошибки из встроенной базы знаний.</li>
+        <li><b>Полная портативность:</b> Плагин автоматически разворачивает необходимые инструменты в любом новом проекте.</li>
+      </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="LPS Processes"
+                    secondary="false"
+                    anchor="bottom"
+                    factoryClass="com.example.lpsplugin.LPSToolWindowFactory"/>
+    </extensions>
+</idea-plugin>

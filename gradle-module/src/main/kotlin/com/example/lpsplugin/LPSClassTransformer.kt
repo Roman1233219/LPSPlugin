@@ -18,8 +18,9 @@ abstract class LPSAsmFactory : AsmClassVisitorFactory<LPSParameters> {
 
     override fun isInstrumentable(classData: ClassData): Boolean {
         val name = classData.className
+        // Исключаем системные классы и ресурсы
         if (name.startsWith("android.") || name.startsWith("com.google.") || 
-            name.contains("LPSTracer") || name.contains(".R")) return false
+            name.contains(".R$") || name.endsWith(".R")) return false
             
         return true
     }
@@ -53,14 +54,14 @@ class LPSClassTransformer(
         val mv = super.visitMethod(access, name, descriptor, signature, exceptions)
         
         val shouldTraceByLevel = checkAccessByLevel(access, name, level)
-        return LPSMethodTransformer(api, mv, className, sourceFile, name, shouldTraceByLevel, level == "SELECTIVE")
+        // Передаем параметры в MethodTransformer. API берем из текущего контекста ClassVisitor.
+        return LPSMethodTransformer(this.api, mv, className, sourceFile, name, shouldTraceByLevel, level == "SELECTIVE")
     }
     
     private fun checkAccessByLevel(access: Int, name: String, level: String): Boolean {
         val isPublic = (access and Opcodes.ACC_PUBLIC) != 0
         val isProtected = (access and Opcodes.ACC_PROTECTED) != 0
         val isPrivate = (access and Opcodes.ACC_PRIVATE) != 0
-        val isPackagePrivate = !isPublic && !isProtected && !isPrivate
         
         val isConstructor = name == "<init>" || name == "<clinit>"
         val isAccessor = name.startsWith("get") || name.startsWith("set") || name.startsWith("is")
@@ -111,15 +112,20 @@ class LPSMethodTransformer(
     }
 
     private fun insertTrace(info: String) {
-        super.visitLdcInsn(sourceFile)
-        super.visitIntInsn(Opcodes.SIPUSH, if (currentLine != -1) currentLine else 0)
-        super.visitLdcInsn(info)
+        val lineNumber = if (currentLine != -1) currentLine else 0
+        val logMessage = "$info ($sourceFile:$lineNumber)"
+        
+        // Используем super.visit... чтобы вызвать метод MethodVisitor, 
+        // который делегирует вызов следующему в цепочке (mv)
+        super.visitLdcInsn("LPS_TRACE")
+        super.visitLdcInsn(logMessage)
         super.visitMethodInsn(
             Opcodes.INVOKESTATIC,
-            "LPSTracer",
-            "trace",
-            "(Ljava/lang/String;ILjava/lang/String;)V",
+            "android/util/Log",
+            "d",
+            "(Ljava/lang/String;Ljava/lang/String;)I",
             false
         )
+        super.visitInsn(Opcodes.POP)
     }
 }
