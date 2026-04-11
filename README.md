@@ -1,13 +1,13 @@
-# Logkat Process Logger
+# LPS
 
 [English](#english) | [Русский](#russian)
 
 ---
 
 <a name="english"></a>
-# 📑 Complete User Guide for Logkat Process Logger
+# 📑 Complete User Guide for LPS
 
-**Logkat** is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing and intelligent hints.
+**LPS** is a powerful Android log analysis environment that replaces standard text output with a structured system featuring deep code tracing and intelligent hints.
 
 ## 💻 System Requirements
 - **IDE**: Android Studio or IntelliJ IDEA **2023.2+** (Build 232 or newer).
@@ -33,8 +33,8 @@ The tool automatically scans the device and groups hundreds of processes into 11
 ## 🛠️ 2. Control Panel (Tools)
 
 ### Left Group: Configuration & Synchronization
-- **📝 Dictionary (EditSource)**: Opens `logkat_dictionary.txt`. Allows you to assign "human-readable" names to packages.
-- **ℹ️ Knowledge Base (Help)**: Opens `logkat_descriptions.txt`. You can add your own descriptions for tags or errors here.
+- **📝 Dictionary (EditSource)**: Opens `lps_dictionary.txt`. Allows you to assign "human-readable" names to packages.
+- **ℹ️ Knowledge Base (Help)**: Opens `lps_descriptions.txt`. You can add your own descriptions for tags or errors here.
 - **🔄 Reset (Rollback)**: Deletes dictionary and description files in the `.idea` folder, restoring the plugin to default settings.
 - **📡 Synchronization (Refresh)**: **Deep Sync.** Runs a script on the device to fetch real icons and names for all applications.
 - **▶️ Enable Tracing (Execute)**: Writes instrumentation into `build.gradle`. Unlocks the central tracing panel.
@@ -43,7 +43,7 @@ The tool automatically scans the device and groups hundreds of processes into 11
 ### Central Group: Tracing (ASM)
 - **Trace Level**: Depth of log injection into your code (Minimal, Basic, Standard, Extended, Full, Selective).
 - **Class Selector**: Appears in **Full** or **Selective** modes. Allows you to select one specific class for tracing (speeds up build).
-- **📑 All Trace Logs (ListFiles)**: Filter only `LOGKAT_TRACE` logs.
+- **📑 All Trace Logs (ListFiles)**: Filter only `LPS_TRACE` logs.
 - **🎯 App Trace (Nodes.Class)**: Shows only your code's tracing, hiding calls from libraries.
 
 ### Right Group: Search & Log Filters
@@ -77,12 +77,12 @@ The tool automatically scans the device and groups hundreds of processes into 11
 ---
 
 <a name="russian"></a>
-# 📑 Полное руководство пользователя Logkat Process Logger
+# 📑 Полное руководство пользователя LPS
 
-**Logkat** — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.
+**LPS** — это мощная среда анализа Android-логов, которая заменяет стандартный текстовый вывод на структурированную систему с глубокой трассировкой кода и интеллектуальными подсказками.
 
 ## 💻 Технические требования
-- **IDE**: Android Studio или IntelliJ IDEA **2023.2+** (Build 232 или новее).
+- **IDE**: Android Studio or IntelliJ IDEA **2023.2+** (Build 232 или новее).
 - **Java**: JDK **17**.
 - **Android Gradle Plugin (AGP)**: **8.0+** рекомендуется для функций ASM-инструментации.
 
@@ -105,8 +105,8 @@ The tool automatically scans the device and groups hundreds of processes into 11
 ## 🛠️ 2. Панель управления (Инструменты)
 
 ### Левая группа: Настройка и Синхронизация
-- **📝 Словарь (EditSource):** Открывает файл `logkat_dictionary.txt`. Позволяет задать «человеческие» имена для пакетов.
-- **ℹ️ База знаний (Help):** Открывает `logkat_descriptions.txt`. Здесь хранятся описания для тегов или ошибок.
+- **📝 Словарь (EditSource):** Открывает файл `lps_dictionary.txt`. Позволяет задать «человеческие» имена для пакетов.
+- **ℹ️ База знаний (Help):** Открывает `lps_descriptions.txt`. Здесь хранятся описания для тегов или ошибок.
 - **🔄 Сброс (Rollback):** Возвращает плагин к стандартным настройкам (удаляет словари в `.idea`).
 - **📡 Синхронизация (Refresh):** **Deep Sync.** Получение реальных иконок и имен всех приложений с устройства.
 - **▶️ Вкл. Трассировку (Execute):** Прописывает инструментацию в `build.gradle`. Разблокирует панель трассировки.
@@ -115,7 +115,7 @@ The tool automatically scans the device and groups hundreds of processes into 11
 ### Центральная группа: Трассировка (ASM)
 - **Trace Level (Уровни):** Глубина внедрения логов (Minimal, Basic, Standard, Extended, Full, Selective).
 - **Class Selector:** Выбор **одного конкретного класса** для трассировки (ускоряет сборку).
-- **📑 Все Trace-логи (ListFiles):** Фильтр «Путь кода». Оставляет только логи `LOGKAT_TRACE`.
+- **📑 Все Trace-логи (ListFiles):** Фильтр «Путь кода». Оставляет только логи `LPS_TRACE`.
 - **🎯 App Trace (Nodes.Class):** Показывает только трассировку **вашего кода**.
 
 ### Правая группа: Поиск и Фильтры логов
@@ -145,4 +145,3 @@ The tool automatically scans the device and groups hundreds of processes into 11
 - **Двойной клик:** Мгновенный переход к исходному коду (для трассировки и логов с FileName:Line).
 - **Правая кнопка -> Что это?:** Интеллектуальный помощник. Объяснит роль системной службы или причину ошибки.
 - **Авто-очистка:** Таблица чистится автоматически при каждом новом нажатии **Run** в IDE.
-

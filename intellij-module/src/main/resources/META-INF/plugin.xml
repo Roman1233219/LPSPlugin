@@ -1,11 +1,11 @@
 <idea-plugin>
     <id>io.github.Roman1233219.lpsplugin</id>
-    <name>LPS Process Logger</name>
+    <name>LPS</name>
     <version>2.0.0</version>
     <vendor>Roman Dev</vendor>
 
     <description><![CDATA[
-      <h1>🚀 LPS Process Logger & Deep Tracer</h1>
+      <h1>🚀 LPS & Deep Tracer</h1>
       <p>A professional Android log analysis environment that transforms chaotic text logs into a structured process tree with deep bytecode instrumentation.</p>
 
       <h3>✨ Key Features:</h3>
@@ -28,9 +28,11 @@
 
       <h3>⚠️ Requirements & Compatibility:</h3>
       <ul>
+        <li><b>IDE:</b> Android Studio <b>2023.2+</b> (Hedgehog or newer).</li>
         <li><b>OS:</b> Works on <b>Windows</b> only (uses PowerShell for advanced features like icon resolving).</li>
-        <li><b>Development:</b> Specifically designed for <b>Android Studio</b> projects.</li>
+        <li><b>Java:</b> Requires <b>JDK 17+</b>.</li>
         <li><b>Gradle:</b> Requires <b>Gradle 8.0+</b> and <b>Android Gradle Plugin (AGP) 8.0+</b>.</li>
+        <li><b>Instrumentation:</b> Automatically adds <b>ASM 9.6</b> to build dependencies.</li>
         <li><b>Languages:</b> Full support for <b>Kotlin</b> and <b>Java</b> source code.</li>
         <li><b>Tools:</b> Requires <b>ADB</b> to be configured and available in your environment.</li>
         <li><b>Action Required:</b> A <b>Project Sync</b> and <b>Rebuild</b> are strictly necessary after enabling tracing to see the logs.</li>
@@ -55,7 +57,8 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="LPS Processes"
                     secondary="false"
+                    icon="/icons/lpsIcon.png"
                     anchor="bottom"
-                    factoryClass="com.example.lpsplugin.LPSToolWindowFactory"/>
+                    factoryClass="io.github.Roman1233219.lpsplugin.LPSToolWindowFactory"/>
     </extensions>
 </idea-plugin>

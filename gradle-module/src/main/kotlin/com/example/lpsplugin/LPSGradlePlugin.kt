@@ -1,4 +1,4 @@
-package com.example.lpsplugin
+package io.github.Roman1233219.lpsplugin
 
 import com.android.build.api.variant.AndroidComponentsExtension
 import org.gradle.api.Plugin

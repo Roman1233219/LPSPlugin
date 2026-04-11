@@ -1,4 +1,4 @@
-package com.example.lpsplugin
+package io.github.Roman1233219.lpsplugin
 
 import com.android.build.api.instrumentation.*
 import org.objectweb.asm.*
