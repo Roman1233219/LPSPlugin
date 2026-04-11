@@ -2,53 +2,77 @@
     <id>io.github.Roman1233219.lpsplugin</id>
     <name>LPS</name>
     <version>2.0.0</version>
-    <vendor>Roman Dev</vendor>
+    <vendor email="roman1233219@gmail.com" url="https://github.com/Roman1233219">Roman Dev</vendor>
 
     <description><![CDATA[
-      <h1>🚀 LPS & Deep Tracer</h1>
-      <p>A professional Android log analysis environment that transforms chaotic text logs into a structured process tree with deep bytecode instrumentation.</p>
+LPS & Deep Tracer
 
-      <h3>✨ Key Features:</h3>
-      <ul>
-        <li><b>📂 Smart Grouping:</b> Automatically categorizes processes into 11 groups (Google Apps, System Services, Network, Media, Hardware, etc.).</li>
-        <li><b>🎨 Color-Coded Tracing:</b> Deep code instrumentation marks your app methods in bright blue and library methods in purple.</li>
-        <li><b>🔄 Icon Synchronization:</b> Real-time synchronization of app icons and labels directly from your connected Android device.</li>
-        <li><b>💡 Knowledge Base:</b> Right-click any log and select "What is this?" to get instant explanations for system processes, tags, or common errors.</li>
-        <li><b>🎯 Jump to Code:</b> Double-click any trace log to navigate instantly to the corresponding line in your source code.</li>
-      </ul>
+A professional Android log analysis environment that transforms chaotic text logs into a structured process tree with deep bytecode instrumentation.
 
-      <h3>🛠 How Injection Works (Step-by-Step):</h3>
-      <ol>
-        <li><b>Activation:</b> Click the "Enable Tracing" button in the LPS panel.</li>
-        <li><b>Extraction:</b> The plugin automatically extracts the <code>lps-plugin.jar</code> engine into your project's <code>.idea/lps/</code> folder.</li>
-        <li><b>Gradle Update:</b> Your <code>build.gradle(.kts)</code> is automatically updated to include the local instrumentation plugin (Groovy and Kotlin DSL supported).</li>
-        <li><b>Instrumentation:</b> After performing <b>Gradle Sync</b> and <b>Rebuild Project</b>, LPS injects lightweight <code>Log.d</code> calls into your methods during compilation.</li>
-        <li><b>Pure Autonomy:</b> No external dependencies or internet connection required. The plugin brings everything it needs!</li>
-      </ol>
+Key Features:
 
-      <h3>⚠️ Requirements & Compatibility:</h3>
-      <ul>
-        <li><b>IDE:</b> Android Studio <b>2023.2+</b> (Hedgehog or newer).</li>
-        <li><b>OS:</b> Works on <b>Windows</b> only (uses PowerShell for advanced features like icon resolving).</li>
-        <li><b>Java:</b> Requires <b>JDK 17+</b>.</li>
-        <li><b>Gradle:</b> Requires <b>Gradle 8.0+</b> and <b>Android Gradle Plugin (AGP) 8.0+</b>.</li>
-        <li><b>Instrumentation:</b> Automatically adds <b>ASM 9.6</b> to build dependencies.</li>
-        <li><b>Languages:</b> Full support for <b>Kotlin</b> and <b>Java</b> source code.</li>
-        <li><b>Tools:</b> Requires <b>ADB</b> to be configured and available in your environment.</li>
-        <li><b>Action Required:</b> A <b>Project Sync</b> and <b>Rebuild</b> are strictly necessary after enabling tracing to see the logs.</li>
-      </ul>
+- Smart Grouping: Automatically categorizes processes into 11 groups (Google Apps, System Services, Network, Media, Hardware, etc.).
+- Color-Coded Tracing: Deep code instrumentation marks your app methods in bright blue and library methods in purple.
+- Icon Synchronization: Real-time synchronization of app icons and labels directly from your connected Android device.
+- Knowledge Base: Right-click any log and select "What is this?" to get instant explanations for system processes, tags, or common errors.
+- Jump to Code: Double-click any trace log to navigate instantly to the corresponding line in your source code.
 
-      <h3>🧹 Cleanup & Removal:</h3>
-      <p>If you decide to uninstall the plugin or stop using tracing, please note that the following files and folders created by the plugin should be manually removed if tracing is disabled manually:</p>
-      <ul>
-        <li><code>.idea/lps/</code> (contains the instrumentation engine)</li>
-        <li><code>on-device-server/</code> (contains helper scripts for icon resolving)</li>
-        <li><code>.idea/lps_trace_settings.txt</code> (contains your trace level configuration)</li>
-        <li><code>.idea/lps_dictionary.txt</code> & <code>.idea/lps_descriptions.txt</code> (your custom labels and knowledge base)</li>
-      </ul>
+How Injection Works (Step-by-Step):
 
-      <p><i>Made with ❤️ for Android developers who value their time and log clarity.</i></p>
-    ]]></description>
+1. Activation: Click the "Enable Tracing" button in the LPS panel.
+2. Extraction: The plugin automatically extracts the lps-plugin.jar engine into your project's .idea/lps/ folder.
+3. Gradle Update: Your build.gradle(.kts) is automatically updated to include the local instrumentation plugin (Groovy and Kotlin DSL supported).
+4. Instrumentation: After performing Gradle Sync and Rebuild Project, LPS injects lightweight Log.d calls into your methods during compilation.
+5. Pure Autonomy: No external dependencies or internet connection required. The plugin brings everything it needs!
+
+Requirements & Compatibility:
+
+- IDE: Android Studio 2023.2+ (Hedgehog or newer).
+- OS: Works on Windows only (uses PowerShell for advanced features like icon resolving).
+- Java: Requires JDK 17+.
+- Gradle: Requires Gradle 8.0+ and Android Gradle Plugin (AGP) 8.0+.
+- Instrumentation: Automatically adds ASM 9.6 to build dependencies.
+- Languages: Full support for Kotlin and Java source code.
+- Tools: Requires ADB to be configured and available in your environment.
+- Action Required: A Project Sync and Rebuild are strictly necessary after enabling tracing to see the logs.
+
+Cleanup & Removal:
+
+If you decide to uninstall the plugin or stop using tracing, please note that the following files and folders created by the plugin should be manually removed if tracing is disabled manually:
+
+- .idea/lps/ (contains the instrumentation engine)
+- on-device-server/ (contains helper scripts for icon resolving)
+- .idea/lps_trace_settings.txt (contains your trace level configuration)
+- .idea/lps_dictionary.txt & .idea/lps_descriptions.txt (your custom labels and knowledge base)
+
+Made with ❤️ for Android developers who value their time and log clarity.
+]]></description>
+
+    <change-notes><![CDATA[
+Version 2.0.0:
+
+New Features:
+- Added deep bytecode instrumentation with ASM 9.6
+- New knowledge base system with right-click explanations
+- Real-time icon synchronization from connected devices
+- Smart process grouping into 11 categories
+- Color-coded method tracing (blue for app methods, purple for libraries)
+
+Improvements:
+- Full Kotlin DSL support for build.gradle.kts
+- Automatic Gradle configuration
+- Windows PowerShell integration for advanced features
+
+Fixes:
+- Improved ADB connection handling
+- Better error messages for missing dependencies
+
+Requirements:
+- Android Studio 2023.2+ (Hedgehog or newer)
+- JDK 17+
+- Gradle 8.0+
+- AGP 8.0+
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.android</depends>
@@ -56,9 +80,9 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="LPS Processes"
-                    secondary="false"
-                    icon="/icons/lpsIcon.png"
-                    anchor="bottom"
-                    factoryClass="io.github.Roman1233219.lpsplugin.LPSToolWindowFactory"/>
+            secondary="false"
+            icon="/icons/lpsIcon.png"
+            anchor="bottom"
+            factoryClass="io.github.Roman1233219.lpsplugin.LPSToolWindowFactory"/>
     </extensions>
 </idea-plugin>
